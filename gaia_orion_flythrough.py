@@ -163,36 +163,79 @@ def add_derived_columns(df: pd.DataFrame, center_ra_deg: float, center_dec_deg: 
     return df
 
 
-def make_glow_points(df: pd.DataFrame, n_clusters: int = 5, points_per_cluster: int = 400) -> pd.DataFrame:
-    bright = df.nsmallest(max(50, n_clusters * 10), "phot_g_mean_mag").copy()
+def make_nebula_points(
+        df: pd.DataFrame,
+        n_clouds: int = 4,
+        points_per_cloud: int = 250,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(42)
 
-    clusters = bright.sample(n=n_clusters, random_state=42)[["x", "y", "z"]].to_numpy()
-    all_pts = []
+    anchors = df.nsmallest(max(80, n_clouds * 20), "phot_g_mean_mag").copy()
+    anchors = anchors[np.abs(anchors["z"]) < np.nanpercentile(np.abs(anchors["z"]), 70)]
+    if len(anchors) < n_clouds:
+        anchors = df.nsmallest(max(80, n_clouds * 20), "phot_g_mean_mag").copy()
 
-    for cx, cy, cz in clusters:
-        sx, sy, sz = rng.uniform(8, 20, size=3)
-        pts = np.column_stack([
-            rng.normal(cx, sx, size=points_per_cluster),
-            rng.normal(cy, sy, size=points_per_cluster),
-            rng.normal(cz, sz, size=points_per_cluster),
+    chosen = anchors.sample(n=n_clouds, random_state=42)[["x", "y", "z"]].to_numpy()
+
+    inner_rows = []
+    outer_rows = []
+
+    inner_palette = [
+        "rgba(255,140,110,0.06)",
+        "rgba(200,140,255,0.05)",
+        "rgba(255,100,160,0.05)",
+        "rgba(120,220,255,0.045)",
+    ]
+    outer_palette = [
+        "rgba(255,170,130,0.018)",
+        "rgba(170,160,255,0.016)",
+        "rgba(255,140,190,0.016)",
+        "rgba(160,220,255,0.014)",
+    ]
+
+    for i, (cx, cy, cz) in enumerate(chosen):
+        # compact inner cloud
+        inner_n = int(points_per_cloud * 0.45)
+        sx1 = rng.uniform(4.0, 8.0)
+        sy1 = rng.uniform(4.0, 8.0)
+        sz1 = rng.uniform(18.0, 35.0)
+
+        inner_pts = np.column_stack([
+            rng.normal(cx, sx1, size=inner_n),
+            rng.normal(cy, sy1, size=inner_n),
+            rng.normal(cz, sz1, size=inner_n),
         ])
-        all_pts.append(pts)
+        inner_df = pd.DataFrame(inner_pts, columns=["x", "y", "z"])
+        inner_df["size"] = rng.uniform(2.0, 4.0, size=inner_n)
+        inner_df["color"] = inner_palette[i % len(inner_palette)]
+        inner_rows.append(inner_df)
 
-    glow = np.vstack(all_pts)
-    glow_df = pd.DataFrame(glow, columns=["x", "y", "z"])
-    glow_df["size"] = rng.uniform(2, 6, size=len(glow_df))
-    return glow_df
+        # diffuse outer haze
+        outer_n = points_per_cloud - inner_n
+        sx2 = rng.uniform(8.0, 14.0)
+        sy2 = rng.uniform(8.0, 14.0)
+        sz2 = rng.uniform(30.0, 55.0)
+
+        outer_pts = np.column_stack([
+            rng.normal(cx, sx2, size=outer_n),
+            rng.normal(cy, sy2, size=outer_n),
+            rng.normal(cz, sz2, size=outer_n),
+        ])
+        outer_df = pd.DataFrame(outer_pts, columns=["x", "y", "z"])
+        outer_df["size"] = rng.uniform(1.0, 2.2, size=outer_n)
+        outer_df["color"] = outer_palette[i % len(outer_palette)]
+        outer_rows.append(outer_df)
+
+    return (
+        pd.concat(inner_rows, ignore_index=True),
+        pd.concat(outer_rows, ignore_index=True),
+    )
 
 
 def make_figure(df: pd.DataFrame) -> go.Figure:
-    # "beauty mode": keep only the 32100 brightest stars
-    # Smaller G magnitude = brighter star, so nsmallest keeps the brightest ones.
-    pretty_df = df.nsmallest(2100, "phot_g_mean_mag").copy()
+    pretty_df = df.nsmallest(2200, "phot_g_mean_mag").copy()
+    nebula_inner_df, nebula_outer_df = make_nebula_points(pretty_df)
 
-    glow_df = make_glow_points(pretty_df)
-
-    # Split stars into 3 brightness layers
     dim_df = pretty_df[pretty_df["phot_g_mean_mag"] >= 13.5].copy()
     mid_df = pretty_df[
         (pretty_df["phot_g_mean_mag"] < 13.5) &
@@ -202,18 +245,34 @@ def make_figure(df: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure()
 
-    # Soft glow layer
+    # Outer faint haze
     fig.add_trace(
         go.Scatter3d(
-            x=glow_df["x"],
-            y=glow_df["y"],
-            z=glow_df["z"],
+            x=nebula_outer_df["x"],
+            y=nebula_outer_df["y"],
+            z=nebula_outer_df["z"],
             mode="markers",
             marker=dict(
-                size=glow_df["size"],
-                color=np.linspace(0.1, 1.0, len(glow_df)),
-                colorscale="Magma",
-                opacity=0.04,
+                size=nebula_outer_df["size"],
+                color=nebula_outer_df["color"],
+                opacity=1.0,
+            ),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+
+    # Inner slightly denser mist
+    fig.add_trace(
+        go.Scatter3d(
+            x=nebula_inner_df["x"],
+            y=nebula_inner_df["y"],
+            z=nebula_inner_df["z"],
+            mode="markers",
+            marker=dict(
+                size=nebula_inner_df["size"],
+                color=nebula_inner_df["color"],
+                opacity=1.0,
             ),
             hoverinfo="skip",
             showlegend=False,
@@ -230,16 +289,16 @@ def make_figure(df: pd.DataFrame) -> go.Figure:
             text=dim_df["hover"],
             hovertemplate="%{text}<extra></extra>",
             marker=dict(
-                size=dim_df["size"] * 0.5,
+                size=dim_df["size"] * 0.45,
                 color=dim_df["bp_rp_clamped"],
                 colorscale="Turbo",
-                opacity=0.10,
+                opacity=0.08,
             ),
             showlegend=False,
         )
     )
 
-    # Mid-brightness stars
+    # Mid stars
     fig.add_trace(
         go.Scatter3d(
             x=mid_df["x"],
@@ -249,10 +308,10 @@ def make_figure(df: pd.DataFrame) -> go.Figure:
             text=mid_df["hover"],
             hovertemplate="%{text}<extra></extra>",
             marker=dict(
-                size=mid_df["size"] * 0.9,
+                size=mid_df["size"] * 0.8,
                 color=mid_df["bp_rp_clamped"],
                 colorscale="Turbo",
-                opacity=0.45,
+                opacity=0.38,
             ),
             showlegend=False,
         )
@@ -271,7 +330,7 @@ def make_figure(df: pd.DataFrame) -> go.Figure:
                 size=bright_df["size"] * 1.5,
                 color=bright_df["bp_rp_clamped"],
                 colorscale="Turbo",
-                opacity=0.9,
+                opacity=0.92,
                 colorbar=dict(title="BP−RP<br>color", len=0.7),
             ),
             showlegend=False,
@@ -316,6 +375,7 @@ def make_figure(df: pd.DataFrame) -> go.Figure:
             ),
             aspectmode="manual",
             aspectratio=dict(x=1.5, y=1.5, z=0.45),
+            camera=dict(eye=dict(x=1.9, y=1.5, z=0.8)),
         ),
     )
 
