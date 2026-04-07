@@ -7,11 +7,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyvista as pv
-from astroquery.gaia import Gaia
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 
+GIF_FILE = Path("gaia_orion_orbit.gif")
+MP4_FILE = Path("gaia_orion_orbit.mp4")
 
 @dataclass(frozen=True)
 class QueryConfig:
@@ -56,6 +57,7 @@ def build_query(cfg: QueryConfig) -> str:
 
 
 def query_gaia_table(cfg: QueryConfig) -> Table:
+    from astroquery.gaia import Gaia
     Gaia.ROW_LIMIT = -1
     query = build_query(cfg)
     job = Gaia.launch_job(query)
@@ -76,9 +78,12 @@ def save_table_local(tbl: Table) -> None:
 
 def load_local_table() -> Table | None:
     if PARQUET_FILE.exists():
+        print(f"Loading cached Parquet: {PARQUET_FILE}")
         return Table.read(PARQUET_FILE, format="parquet")
     if FITS_FILE.exists():
+        print(f"Loading cached FITS: {FITS_FILE}")
         return Table.read(FITS_FILE, format="fits")
+    print("No local cache found")
     return None
 
 
@@ -86,8 +91,10 @@ def get_data(cfg: QueryConfig, refresh: bool = False) -> pd.DataFrame:
     if not refresh:
         cached = load_local_table()
         if cached is not None:
+            print("Using local cached Gaia data")
             return cached.to_pandas()
 
+    print("Querying Gaia archive")
     tbl = query_gaia_table(cfg)
     save_table_local(tbl)
     return tbl.to_pandas()
@@ -163,24 +170,20 @@ def star_rgb_from_bprp(bp_rp: np.ndarray) -> np.ndarray:
 
 def build_density_grid(
         df: pd.DataFrame,
-        dims: tuple[int, int, int] = (80, 80, 70),
+        dims: tuple[int, int, int] = (84, 84, 64),
         n_anchor_stars: int = 90,
-        z_scale: float = 0.22,
         seed: int = 42,
 ) -> pv.ImageData:
     rng = np.random.default_rng(seed)
 
-    work = df.copy()
-    work["z_render"] = work["z"] * z_scale
-
-    anchors = work.nsmallest(n_anchor_stars, "phot_g_mean_mag").copy()
+    anchors = df.nsmallest(n_anchor_stars, "phot_g_mean_mag").copy()
     anchors = anchors[np.abs(anchors["z_render"]) < np.nanpercentile(np.abs(anchors["z_render"]), 70)]
     if len(anchors) < 20:
-        anchors = work.nsmallest(n_anchor_stars, "phot_g_mean_mag").copy()
+        anchors = df.nsmallest(n_anchor_stars, "phot_g_mean_mag").copy()
 
-    x = work["x"].to_numpy()
-    y = work["y"].to_numpy()
-    z = work["z_render"].to_numpy()
+    x = df["x_render"].to_numpy()
+    y = df["y_render"].to_numpy()
+    z = df["z_render"].to_numpy()
 
     xr = np.nanpercentile(np.abs(x), 99)
     yr = np.nanpercentile(np.abs(y), 99)
@@ -201,12 +204,12 @@ def build_density_grid(
     chosen = anchors.sample(n=min(22, len(anchors)), random_state=seed)
 
     for _, row in chosen.iterrows():
-        cx, cy, cz = row["x"], row["y"], row["z_render"]
+        cx, cy, cz = row["x_render"], row["y_render"], row["z_render"]
 
-        sx = rng.uniform(2.5, 5.5)
-        sy = rng.uniform(2.5, 5.5)
-        sz = rng.uniform(4.0, 10.0)
-        amp = rng.uniform(0.45, 1.0)
+        sx = rng.uniform(3.0, 6.2)
+        sy = rng.uniform(3.0, 6.2)
+        sz = rng.uniform(3.0, 7.5)
+        amp = rng.uniform(0.42, 0.95)
 
         blob = np.exp(
             -(
@@ -219,17 +222,21 @@ def build_density_grid(
 
     central_blob = np.exp(
         -(
-                (X ** 2) / (2 * (0.32 * xr) ** 2)
-                + (Y ** 2) / (2 * (0.32 * yr) ** 2)
-                + (Z ** 2) / (2 * (0.28 * zr) ** 2)
+                (X ** 2) / (2 * (0.30 * xr) ** 2)
+                + (Y ** 2) / (2 * (0.30 * yr) ** 2)
+                + (Z ** 2) / (2 * (0.24 * zr) ** 2)
         )
     )
+    # lower- less airbrushed central glow
+    # secondary blobs shape the nebula more
+    density += 0.10 * central_blob.astype(np.float32)
+
     secondary_blobs = [
-        (-0.18 * xr,  0.10 * yr,  0.05 * zr, 0.10, 0.12, 0.10, 0.16),
-        ( 0.22 * xr, -0.08 * yr, -0.02 * zr, 0.09, 0.10, 0.08, 0.13),
-        ( 0.05 * xr,  0.20 * yr,  0.00 * zr, 0.08, 0.09, 0.07, 0.11),
+        (-0.18 * xr,  0.10 * yr,  0.02 * zr, 0.11, 0.11, 0.10, 0.14),
+        ( 0.20 * xr, -0.10 * yr, -0.02 * zr, 0.10, 0.10, 0.09, 0.12),
+        ( 0.04 * xr,  0.20 * yr,  0.00 * zr, 0.08, 0.09, 0.08, 0.10),
     ]
-    density += 0.22 * central_blob.astype(np.float32)
+
     for cx, cy, cz, sxr, syr, szr, amp in secondary_blobs:
         blob = np.exp(
             -(
@@ -253,11 +260,11 @@ def build_density_grid(
     return grid
 
 
-def build_star_polydata(df: pd.DataFrame, z_scale: float = 0.22) -> pv.PolyData:
+def build_star_polydata(df: pd.DataFrame) -> pv.PolyData:
     pts = np.column_stack([
-        df["x"].to_numpy(),
-        df["y"].to_numpy(),
-        df["z"].to_numpy() * z_scale,
+        df["x_render"].to_numpy(),
+        df["y_render"].to_numpy(),
+        df["z_render"].to_numpy(),
         ])
     poly = pv.PolyData(pts)
     poly["size"] = df["size"].to_numpy()
@@ -265,17 +272,28 @@ def build_star_polydata(df: pd.DataFrame, z_scale: float = 0.22) -> pv.PolyData:
     return poly
 
 
-def render_scene(df: pd.DataFrame, screenshot: bool = True) -> None:
-    z_scale = 0.12
-    pretty_df = df.nsmallest(1800, "phot_g_mean_mag").copy()
+def render_scene(
+        df: pd.DataFrame,
+        screenshot: bool = True,
+        animate: bool = False,
+        movie_format: str = "mp4",
+        n_frames: int = 120,
+) -> None:
+    # pretty_df = df.nsmallest(1200, "phot_g_mean_mag").copy()
+    # pretty_df = add_render_columns(pretty_df, x_scale=1.18, y_scale=1.18, z_scale=0.16)
 
-    grid = build_density_grid(pretty_df, dims=(80, 80, 70), n_anchor_stars=90, z_scale=z_scale)
-    stars = build_star_polydata(pretty_df, z_scale=z_scale)
+    # fewer stars = cleaner subject
+    pretty_df = df.nsmallest(1000, "phot_g_mean_mag").copy()
+    # ider x/y + shorter z = less plume-like, more nebula-like
+    pretty_df = add_render_columns(pretty_df, x_scale=1.28, y_scale=1.24, z_scale=0.13)
 
-    plotter = pv.Plotter(window_size=(1600, 900))
+    grid = build_density_grid(pretty_df, dims=(84, 84, 64), n_anchor_stars=90)
+    stars = build_star_polydata(pretty_df)
+
+    plotter = pv.Plotter(window_size=(1600, 912), off_screen=(screenshot or animate))
     plotter.set_background("black")
 
-    opacity = [0.0, 0.0, 0.015, 0.04, 0.08, 0.15, 0.24]
+    opacity = [0.0, 0.0, 0.012, 0.03, 0.07, 0.13, 0.22]
     plotter.add_volume(
         grid,
         scalars="density",
@@ -292,11 +310,11 @@ def render_scene(df: pd.DataFrame, screenshot: bool = True) -> None:
         rgb=True,
         point_size=2.0,
         render_points_as_spheres=True,
-        opacity=0.12,
+        opacity=0.11,
     )
 
     bright_df = pretty_df[pretty_df["phot_g_mean_mag"] < 11.8].copy()
-    bright_stars = build_star_polydata(bright_df, z_scale=z_scale)
+    bright_stars = build_star_polydata(bright_df)
     plotter.add_points(
         bright_stars,
         scalars="rgb",
@@ -306,13 +324,15 @@ def render_scene(df: pd.DataFrame, screenshot: bool = True) -> None:
         opacity=0.95,
     )
 
-    xr = np.nanpercentile(np.abs(pretty_df["x"]), 99)
-    yr = np.nanpercentile(np.abs(pretty_df["y"]), 99)
-    zr = np.nanpercentile(np.abs(pretty_df["z"] * z_scale), 99)
+    xr = np.nanpercentile(np.abs(pretty_df["x_render"]), 99)
+    yr = np.nanpercentile(np.abs(pretty_df["y_render"]), 99)
+    zr = np.nanpercentile(np.abs(pretty_df["z_render"]), 99)
+
+    focal = np.array([0.06 * xr, -0.03 * yr, 0.0])
 
     plotter.camera_position = [
-        (1.6 * xr, -1.8 * yr, 0.9 * zr),
-        (0, 0, 0),
+        (1.45 * xr, -1.75 * yr, 0.85 * zr),
+        tuple(focal),
         (0, 0, 1),
     ]
 
@@ -322,19 +342,80 @@ def render_scene(df: pd.DataFrame, screenshot: bool = True) -> None:
         color="white",
     )
 
+    if animate:
+        if movie_format == "gif":
+            plotter.open_gif(str(GIF_FILE), fps=18)
+            out_name = GIF_FILE
+        else:
+            plotter.open_movie(str(MP4_FILE), framerate=24)
+            out_name = MP4_FILE
+
+        # Must show with auto_close=False before orbiting on a path
+        plotter.show(auto_close=False)
+
+        # custom shallow tilted elliptical orbit
+        angles = np.linspace(0, 2 * np.pi, n_frames, endpoint=False)
+
+        # tighter orbit
+        # subject stays bigger in frame
+        # feels less like surveying data, more like circling an object
+        radius_x = 1.28 * xr
+        radius_y = 1.45 * yr
+        radius_x = 1.10 * xr
+        base_z = 0.52 * zr
+
+        for theta in angles:
+            cam = (
+                radius_x * np.cos(theta),
+                radius_y * np.sin(theta),
+                base_z + 0.18 * zr * np.sin(theta + 0.6),
+            )
+            plotter.camera_position = [cam, tuple(focal), (0, 0, 1)]
+            plotter.write_frame()
+
+        plotter.close()
+        print(f"Saved orbit animation to {out_name}")
+        return
+
     if screenshot:
         plotter.show(screenshot=str(SCREENSHOT_FILE))
         print(f"Saved screenshot to {SCREENSHOT_FILE}")
     else:
         plotter.show()
 
+def add_render_columns(
+        df: pd.DataFrame,
+        x_scale: float = 1.28,
+        y_scale: float = 1.24,
+        z_scale: float = 0.13,
+) -> pd.DataFrame:
+    out = df.copy()
+    out["x_render"] = out["x"] * x_scale
+    out["y_render"] = out["y"] * y_scale
+    out["z_render"] = out["z"] * z_scale
+    return out
 
-def main(refresh: bool = False, screenshot: bool = True) -> None:
+def main(
+        refresh: bool = False,
+        screenshot: bool = True,
+        animate: bool = False,
+        movie_format: str = "mp4",
+        n_frames: int = 120,
+) -> None:
     cfg = QueryConfig()
     df = get_data(cfg, refresh=refresh)
     df = add_derived_columns(df, cfg.ra_deg, cfg.dec_deg)
-    render_scene(df, screenshot=screenshot)
+    render_scene(
+        df,
+        screenshot=screenshot,
+        animate=animate,
+        movie_format=movie_format,
+        n_frames=n_frames,
+    )
 
 
 if __name__ == "__main__":
-    main(refresh=False, screenshot=False)
+    main(refresh=False, screenshot=False, animate=True, movie_format="mp4", n_frames=120)
+
+# if __name__ == "__main__":
+#     main(refresh=False, screenshot=False, animate=True, movie_format="gif", n_frames=72)
