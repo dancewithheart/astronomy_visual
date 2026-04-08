@@ -170,10 +170,10 @@ def star_rgb_from_bprp(bp_rp: np.ndarray) -> np.ndarray:
 
 def build_density_grid(
         df: pd.DataFrame,
-        dims: tuple[int, int, int] = (84, 84, 64),
+        dims: tuple[int, int, int] = (112, 112, 80),
         n_anchor_stars: int = 90,
         seed: int = 42,
-) -> pv.ImageData:
+) -> tuple[pv.ImageData, pv.ImageData]:
     rng = np.random.default_rng(seed)
 
     anchors = df.nsmallest(n_anchor_stars, "phot_g_mean_mag").copy()
@@ -199,7 +199,8 @@ def build_density_grid(
     zs = np.linspace(zmin, zmax, nz)
 
     X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
-    density = np.zeros((nx, ny, nz), dtype=np.float32)
+
+    base_density = np.zeros((nx, ny, nz), dtype=np.float32)
 
     chosen = anchors.sample(n=min(22, len(anchors)), random_state=seed)
 
@@ -218,7 +219,7 @@ def build_density_grid(
                     + ((Z - cz) ** 2) / (2 * sz * sz)
             )
         )
-        density += amp * blob.astype(np.float32)
+        base_density += amp * blob.astype(np.float32)
 
     central_blob = np.exp(
         -(
@@ -227,14 +228,12 @@ def build_density_grid(
                 + (Z ** 2) / (2 * (0.24 * zr) ** 2)
         )
     )
-    # lower- less airbrushed central glow
-    # secondary blobs shape the nebula more
-    density += 0.10 * central_blob.astype(np.float32)
+    base_density += 0.07 * central_blob.astype(np.float32)
 
     secondary_blobs = [
-        (-0.18 * xr,  0.10 * yr,  0.02 * zr, 0.11, 0.11, 0.10, 0.14),
-        ( 0.20 * xr, -0.10 * yr, -0.02 * zr, 0.10, 0.10, 0.09, 0.12),
-        ( 0.04 * xr,  0.20 * yr,  0.00 * zr, 0.08, 0.09, 0.08, 0.10),
+        (-0.22 * xr,  0.04 * yr,  0.02 * zr, 0.12, 0.10, 0.10, 0.15),
+        ( 0.24 * xr, -0.08 * yr, -0.02 * zr, 0.10, 0.10, 0.09, 0.13),
+        ( 0.03 * xr,  0.20 * yr,  0.00 * zr, 0.08, 0.09, 0.08, 0.10),
     ]
 
     for cx, cy, cz, sxr, syr, szr, amp in secondary_blobs:
@@ -245,19 +244,48 @@ def build_density_grid(
                     + ((Z - cz) ** 2) / (2 * (szr * zr) ** 2)
             )
         )
-        density += amp * blob.astype(np.float32)
-    density /= max(float(density.max()), 1e-6)
+        base_density += amp * blob.astype(np.float32)
 
-    grid = pv.ImageData()
-    grid.dimensions = np.array(dims) + 1
-    grid.origin = (xmin, ymin, zmin)
-    grid.spacing = (
-        (xmax - xmin) / nx,
-        (ymax - ymin) / ny,
-        (zmax - zmin) / nz,
+    # Mild internal turbulence to break smooth banding
+    noise = (
+            0.022 * np.sin(0.23 * X + 0.11 * Y)
+            + 0.016 * np.sin(0.17 * Y - 0.19 * Z)
+            + 0.012 * np.sin(0.21 * X + 0.14 * Z)
     )
-    grid.cell_data["density"] = density.flatten(order="F")
-    return grid
+    base_density *= (1.0 + noise.astype(np.float32))
+    base_density = np.clip(base_density, 0.0, None)
+
+    base_density /= max(float(base_density.max()), 1e-6)
+
+    # Left-right split for color asymmetry.
+    # warm strongest on the left, cool strongest on the right
+    sigmoid_scale = 0.22 * xr
+    warm_weight = 1.0 / (1.0 + np.exp((X - 0.02 * xr) / sigmoid_scale))
+    cool_weight = 1.0 / (1.0 + np.exp((-X - 0.04 * xr) / sigmoid_scale))
+
+    # small vertical modulation so it doesn't look like a simple left/right paint job
+    warm_mod = 0.85 + 0.25 * np.exp(-((Y + 0.10 * yr) ** 2) / (2 * (0.22 * yr) ** 2))
+    cool_mod = 0.80 + 0.30 * np.exp(-((Y - 0.08 * yr) ** 2) / (2 * (0.24 * yr) ** 2))
+
+    warm_density = base_density * warm_weight * warm_mod
+    cool_density = base_density * cool_weight * cool_mod
+
+    warm_density /= max(float(warm_density.max()), 1e-6)
+    cool_density /= max(float(cool_density.max()), 1e-6)
+
+    def make_grid(arr: np.ndarray) -> pv.ImageData:
+        grid = pv.ImageData()
+        grid.dimensions = np.array(dims) + 1
+        grid.origin = (xmin, ymin, zmin)
+        grid.spacing = (
+            (xmax - xmin) / nx,
+            (ymax - ymin) / ny,
+            (zmax - zmin) / nz,
+        )
+        grid.cell_data["density"] = arr.flatten(order="F")
+        return grid
+
+    return make_grid(warm_density), make_grid(cool_density)
 
 
 def build_star_polydata(df: pd.DataFrame) -> pv.PolyData:
@@ -287,18 +315,30 @@ def render_scene(
     # ider x/y + shorter z = less plume-like, more nebula-like
     pretty_df = add_render_columns(pretty_df, x_scale=1.28, y_scale=1.24, z_scale=0.13)
 
-    grid = build_density_grid(pretty_df, dims=(84, 84, 64), n_anchor_stars=90)
+    warm_grid, cool_grid = build_density_grid(pretty_df, dims=(112, 112, 80), n_anchor_stars=90)
     stars = build_star_polydata(pretty_df)
 
     plotter = pv.Plotter(window_size=(1600, 912), off_screen=(screenshot or animate))
     plotter.set_background("black")
 
-    opacity = [0.0, 0.0, 0.012, 0.03, 0.07, 0.13, 0.22]
+    warm_opacity = [0.0, 0.0, 0.008, 0.022, 0.050, 0.090, 0.145]
+    cool_opacity = [0.0, 0.0, 0.006, 0.018, 0.040, 0.075, 0.115]
+
     plotter.add_volume(
-        grid,
+        warm_grid,
         scalars="density",
-        cmap="magma",
-        opacity=opacity,
+        cmap="autumn",
+        opacity=warm_opacity,
+        shade=True,
+        blending="composite",
+        show_scalar_bar=False,
+    )
+
+    plotter.add_volume(
+        cool_grid,
+        scalars="density",
+        cmap="BuPu",
+        opacity=cool_opacity,
         shade=True,
         blending="composite",
         show_scalar_bar=False,
@@ -310,7 +350,7 @@ def render_scene(
         rgb=True,
         point_size=2.0,
         render_points_as_spheres=True,
-        opacity=0.11,
+        opacity=0.08,
     )
 
     bright_df = pretty_df[pretty_df["phot_g_mean_mag"] < 11.8].copy()
@@ -359,9 +399,8 @@ def render_scene(
         # tighter orbit
         # subject stays bigger in frame
         # feels less like surveying data, more like circling an object
-        radius_x = 1.28 * xr
-        radius_y = 1.45 * yr
         radius_x = 1.10 * xr
+        radius_y = 1.22 * yr
         base_z = 0.52 * zr
 
         for theta in angles:
