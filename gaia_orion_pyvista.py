@@ -167,6 +167,38 @@ def star_rgb_from_bprp(bp_rp: np.ndarray) -> np.ndarray:
 
     return np.clip(rgb, 0, 255).astype(np.uint8)
 
+def tint_star_rgb_by_position(df: pd.DataFrame, rgb: np.ndarray) -> np.ndarray:
+    """
+    Subtle warm-left / cool-right tint so stars feel embedded in the nebula.
+    Keeps the original Gaia-inspired color, only nudges it slightly.
+    """
+    out = rgb.astype(np.float32).copy()
+
+    x = df["x_render"].to_numpy()
+    y = df["y_render"].to_numpy()
+
+    xr = max(np.nanpercentile(np.abs(x), 99), 1e-6)
+    yr = max(np.nanpercentile(np.abs(y), 99), 1e-6)
+
+    # Warm stronger on the left, cool stronger on the right
+    warm_w = 1.0 / (1.0 + np.exp((x - 0.02 * xr) / (0.20 * xr)))
+    cool_w = 1.0 / (1.0 + np.exp((-x - 0.04 * xr) / (0.20 * xr)))
+
+    # Slight vertical modulation so it does not look like a flat left/right paint job
+    warm_w *= 0.90 + 0.15 * np.exp(-((y + 0.08 * yr) ** 2) / (2 * (0.25 * yr) ** 2))
+    cool_w *= 0.90 + 0.18 * np.exp(-((y - 0.06 * yr) ** 2) / (2 * (0.26 * yr) ** 2))
+
+    warm_tint = np.array([255, 205, 120], dtype=np.float32)
+    cool_tint = np.array([160, 190, 255], dtype=np.float32)
+
+    # Keep this subtle
+    warm_alpha = 0.10 * warm_w[:, None]
+    cool_alpha = 0.08 * cool_w[:, None]
+
+    out = (1.0 - warm_alpha) * out + warm_alpha * warm_tint
+    out = (1.0 - cool_alpha) * out + cool_alpha * cool_tint
+
+    return np.clip(out, 0, 255).astype(np.uint8)
 
 def build_density_grid(
         df: pd.DataFrame,
@@ -293,10 +325,14 @@ def build_star_polydata(df: pd.DataFrame) -> pv.PolyData:
         df["x_render"].to_numpy(),
         df["y_render"].to_numpy(),
         df["z_render"].to_numpy(),
-        ])
+    ])
     poly = pv.PolyData(pts)
     poly["size"] = df["size"].to_numpy()
-    poly["rgb"] = star_rgb_from_bprp(df["bp_rp_clamped"].to_numpy())
+
+    rgb = star_rgb_from_bprp(df["bp_rp_clamped"].to_numpy())
+    rgb = tint_star_rgb_by_position(df, rgb)
+    poly["rgb"] = rgb
+
     return poly
 
 
@@ -412,11 +448,12 @@ def render_scene(
         (0, 0, 1),
     ]
 
-    plotter.add_text(
-        "Gaia DR3: Orion Region",
-        font_size=10,
-        color="white",
-    )
+    if not animate:
+        plotter.add_text(
+            "Gaia DR3: Orion Region",
+            font_size=10,
+            color="white",
+        )
 
     if animate:
         if movie_format == "gif":
