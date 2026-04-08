@@ -344,22 +344,58 @@ def render_scene(
         show_scalar_bar=False,
     )
 
+    # Split stars by rendered depth for better layering
+    zq1 = pretty_df["z_render"].quantile(0.33)
+    zq2 = pretty_df["z_render"].quantile(0.66)
+
+    background_df = pretty_df[pretty_df["z_render"] > zq2].copy()
+    embedded_df = pretty_df[
+        (pretty_df["z_render"] >= zq1) & (pretty_df["z_render"] <= zq2)
+        ].copy()
+    foreground_df = pretty_df[pretty_df["z_render"] < zq1].copy()
+
+    background_stars = build_star_polydata(background_df)
+    embedded_stars = build_star_polydata(embedded_df)
+    foreground_stars = build_star_polydata(foreground_df)
+
+    # Background stars: faint and tiny
     plotter.add_points(
-        stars,
+        background_stars,
         scalars="rgb",
         rgb=True,
-        point_size=2.0,
+        point_size=1.2,
         render_points_as_spheres=True,
-        opacity=0.08,
+        opacity=0.035,
     )
 
+    # Embedded stars: normal
+    plotter.add_points(
+        embedded_stars,
+        scalars="rgb",
+        rgb=True,
+        point_size=1.9,
+        render_points_as_spheres=True,
+        opacity=0.09,
+    )
+
+    # Foreground stars: a bit larger
+    plotter.add_points(
+        foreground_stars,
+        scalars="rgb",
+        rgb=True,
+        point_size=2.8,
+        render_points_as_spheres=True,
+        opacity=0.16,
+    )
+
+    # Bright stars on top
     bright_df = pretty_df[pretty_df["phot_g_mean_mag"] < 11.8].copy()
     bright_stars = build_star_polydata(bright_df)
     plotter.add_points(
         bright_stars,
         scalars="rgb",
         rgb=True,
-        point_size=5.0,
+        point_size=4.8,
         render_points_as_spheres=True,
         opacity=0.95,
     )
