@@ -30,6 +30,83 @@ PARQUET_FILE = CACHE_DIR / "orion_gaia.parquet"
 FITS_FILE = CACHE_DIR / "orion_gaia.fits"
 SCREENSHOT_FILE = Path("gaia_orion_pyvista.png")
 
+@dataclass(frozen=True)
+class RenderPreset:
+    name: str
+    n_stars: int
+    dims: tuple[int, int, int]
+    n_frames: int
+    x_scale: float
+    y_scale: float
+    z_scale: float
+    faint_star_opacity_bg: float
+    faint_star_opacity_mid: float
+    faint_star_opacity_fg: float
+    bright_star_point_size: float
+    radius_x_mul: float
+    radius_y_mul: float
+    base_z_mul: float
+
+
+RENDER_PRESETS: dict[str, RenderPreset] = {
+    "draft": RenderPreset(
+        name="draft",
+        n_stars=700,
+        dims=(80, 80, 56),
+        n_frames=48,
+        x_scale=1.24,
+        y_scale=1.20,
+        z_scale=0.14,
+        faint_star_opacity_bg=0.025,
+        faint_star_opacity_mid=0.070,
+        faint_star_opacity_fg=0.130,
+        bright_star_point_size=4.2,
+        radius_x_mul=1.05,
+        radius_y_mul=1.16,
+        base_z_mul=0.50,
+    ),
+    "preview": RenderPreset(
+        name="preview",
+        n_stars=1000,
+        dims=(112, 112, 80),
+        n_frames=72,
+        x_scale=1.28,
+        y_scale=1.24,
+        z_scale=0.13,
+        faint_star_opacity_bg=0.035,
+        faint_star_opacity_mid=0.090,
+        faint_star_opacity_fg=0.160,
+        bright_star_point_size=4.8,
+        radius_x_mul=1.10,
+        radius_y_mul=1.22,
+        base_z_mul=0.52,
+    ),
+    "final": RenderPreset(
+        name="final",
+        n_stars=1200,
+        dims=(128, 128, 96),
+        n_frames=120,
+        x_scale=1.30,
+        y_scale=1.26,
+        z_scale=0.13,
+        faint_star_opacity_bg=0.032,
+        faint_star_opacity_mid=0.085,
+        faint_star_opacity_fg=0.155,
+        bright_star_point_size=5.0,
+        radius_x_mul=1.08,
+        radius_y_mul=1.20,
+        base_z_mul=0.50,
+    ),
+}
+
+
+def get_render_preset(name: str) -> RenderPreset:
+    key = name.lower().strip()
+    if key not in RENDER_PRESETS:
+        allowed = ", ".join(RENDER_PRESETS.keys())
+        raise ValueError(f"Unknown quality preset: {name!r}. Choose one of: {allowed}")
+    return RENDER_PRESETS[key]
+
 
 def build_query(cfg: QueryConfig) -> str:
     return f"""
@@ -341,18 +418,25 @@ def render_scene(
         screenshot: bool = True,
         animate: bool = False,
         movie_format: str = "mp4",
-        n_frames: int = 120,
+        n_frames: int | None = None,
+        quality: str = "preview",
 ) -> None:
-    # pretty_df = df.nsmallest(1200, "phot_g_mean_mag").copy()
-    # pretty_df = add_render_columns(pretty_df, x_scale=1.18, y_scale=1.18, z_scale=0.16)
+    preset = get_render_preset(quality)
+    frame_count = preset.n_frames if n_frames is None else n_frames
 
-    # fewer stars = cleaner subject
-    pretty_df = df.nsmallest(1000, "phot_g_mean_mag").copy()
-    # ider x/y + shorter z = less plume-like, more nebula-like
-    pretty_df = add_render_columns(pretty_df, x_scale=1.28, y_scale=1.24, z_scale=0.13)
+    pretty_df = df.nsmallest(preset.n_stars, "phot_g_mean_mag").copy()
+    pretty_df = add_render_columns(
+        pretty_df,
+        x_scale=preset.x_scale,
+        y_scale=preset.y_scale,
+        z_scale=preset.z_scale,
+    )
 
-    warm_grid, cool_grid = build_density_grid(pretty_df, dims=(112, 112, 80), n_anchor_stars=90)
-    stars = build_star_polydata(pretty_df)
+    warm_grid, cool_grid = build_density_grid(
+        pretty_df,
+        dims=preset.dims,
+        n_anchor_stars=90,
+    )
 
     plotter = pv.Plotter(window_size=(1600, 912), off_screen=(screenshot or animate))
     plotter.set_background("black")
@@ -394,44 +478,40 @@ def render_scene(
     embedded_stars = build_star_polydata(embedded_df)
     foreground_stars = build_star_polydata(foreground_df)
 
-    # Background stars: faint and tiny
     plotter.add_points(
         background_stars,
         scalars="rgb",
         rgb=True,
         point_size=1.2,
         render_points_as_spheres=True,
-        opacity=0.035,
+        opacity=preset.faint_star_opacity_bg,
     )
 
-    # Embedded stars: normal
     plotter.add_points(
         embedded_stars,
         scalars="rgb",
         rgb=True,
         point_size=1.9,
         render_points_as_spheres=True,
-        opacity=0.09,
+        opacity=preset.faint_star_opacity_mid,
     )
 
-    # Foreground stars: a bit larger
     plotter.add_points(
         foreground_stars,
         scalars="rgb",
         rgb=True,
         point_size=2.8,
         render_points_as_spheres=True,
-        opacity=0.16,
+        opacity=preset.faint_star_opacity_fg,
     )
 
-    # Bright stars on top
     bright_df = pretty_df[pretty_df["phot_g_mean_mag"] < 11.8].copy()
     bright_stars = build_star_polydata(bright_df)
     plotter.add_points(
         bright_stars,
         scalars="rgb",
         rgb=True,
-        point_size=4.8,
+        point_size=preset.bright_star_point_size,
         render_points_as_spheres=True,
         opacity=0.95,
     )
@@ -450,7 +530,7 @@ def render_scene(
 
     if not animate:
         plotter.add_text(
-            "Gaia DR3: Orion Region",
+            f"Gaia DR3: Orion Region ({preset.name})",
             font_size=10,
             color="white",
         )
@@ -463,18 +543,13 @@ def render_scene(
             plotter.open_movie(str(MP4_FILE), framerate=24)
             out_name = MP4_FILE
 
-        # Must show with auto_close=False before orbiting on a path
         plotter.show(auto_close=False)
 
-        # custom shallow tilted elliptical orbit
-        angles = np.linspace(0, 2 * np.pi, n_frames, endpoint=False)
+        angles = np.linspace(0, 2 * np.pi, frame_count, endpoint=False)
 
-        # tighter orbit
-        # subject stays bigger in frame
-        # feels less like surveying data, more like circling an object
-        radius_x = 1.10 * xr
-        radius_y = 1.22 * yr
-        base_z = 0.52 * zr
+        radius_x = preset.radius_x_mul * xr
+        radius_y = preset.radius_y_mul * yr
+        base_z = preset.base_z_mul * zr
 
         for theta in angles:
             cam = (
@@ -486,12 +561,12 @@ def render_scene(
             plotter.write_frame()
 
         plotter.close()
-        print(f"Saved orbit animation to {out_name}")
+        print(f"Saved orbit animation to {out_name} using preset '{preset.name}'")
         return
 
     if screenshot:
         plotter.show(screenshot=str(SCREENSHOT_FILE))
-        print(f"Saved screenshot to {SCREENSHOT_FILE}")
+        print(f"Saved screenshot to {SCREENSHOT_FILE} using preset '{preset.name}'")
     else:
         plotter.show()
 
@@ -512,7 +587,8 @@ def main(
         screenshot: bool = True,
         animate: bool = False,
         movie_format: str = "mp4",
-        n_frames: int = 120,
+        n_frames: int | None = None,
+        quality: str = "preview",
 ) -> None:
     cfg = QueryConfig()
     df = get_data(cfg, refresh=refresh)
@@ -523,11 +599,18 @@ def main(
         animate=animate,
         movie_format=movie_format,
         n_frames=n_frames,
+        quality=quality,
     )
 
 
+# if __name__ == "__main__":
+#     main(refresh=False, screenshot=False, animate=True, movie_format="mp4", quality="draft")
+
+# if __name__ == "__main__":
+#     main(refresh=False, screenshot=False, animate=True, movie_format="mp4", quality="preview")
+
 if __name__ == "__main__":
-    main(refresh=False, screenshot=False, animate=True, movie_format="mp4", n_frames=120)
+    main(refresh=False, screenshot=True, animate=True, movie_format="mp4", quality="final")
 
 # if __name__ == "__main__":
 #     main(refresh=False, screenshot=False, animate=True, movie_format="gif", n_frames=72)
