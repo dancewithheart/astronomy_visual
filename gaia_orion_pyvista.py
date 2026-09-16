@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,7 @@ class QueryConfig:
     row_limit: int = 8000
     parallax_min_mas: float = 1.0
     parallax_max_mas: float = 8.0
+    parallax_over_error_min: float = 5.0
     gmag_max: float = 15.5
 
 
@@ -115,6 +117,7 @@ def build_query(cfg: QueryConfig) -> str:
         ra,
         dec,
         parallax,
+        parallax_over_error,
         phot_g_mean_mag,
         bp_rp,
         random_index
@@ -126,6 +129,7 @@ def build_query(cfg: QueryConfig) -> str:
         )
         AND parallax IS NOT NULL
         AND parallax BETWEEN {cfg.parallax_min_mas} AND {cfg.parallax_max_mas}
+        AND parallax_over_error >= {cfg.parallax_over_error_min}
         AND phot_g_mean_mag IS NOT NULL
         AND bp_rp IS NOT NULL
         AND phot_g_mean_mag < {cfg.gmag_max}
@@ -603,14 +607,26 @@ def main(
     )
 
 
-# if __name__ == "__main__":
-#     main(refresh=False, screenshot=False, animate=True, movie_format="mp4", quality="draft")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render the Gaia Orion visualization")
+    parser.add_argument(
+        "--mode",
+        choices=["screenshot", "interactive", "gif", "mp4"],
+        default="screenshot",
+    )
+    parser.add_argument("--quality", choices=RENDER_PRESETS, default="preview")
+    parser.add_argument("--frames", type=int, default=None)
+    parser.add_argument("--refresh", action="store_true", help="Run a new Gaia query")
+    return parser.parse_args()
 
-# if __name__ == "__main__":
-#     main(refresh=False, screenshot=False, animate=True, movie_format="mp4", quality="preview")
 
 if __name__ == "__main__":
-    main(refresh=False, screenshot=True, animate=True, movie_format="mp4", quality="final")
-
-# if __name__ == "__main__":
-#     main(refresh=False, screenshot=False, animate=True, movie_format="gif", n_frames=72)
+    args = parse_args()
+    main(
+        refresh=args.refresh,
+        screenshot=args.mode == "screenshot",
+        animate=args.mode in {"gif", "mp4"},
+        movie_format=args.mode if args.mode in {"gif", "mp4"} else "mp4",
+        n_frames=args.frames,
+        quality=args.quality,
+    )

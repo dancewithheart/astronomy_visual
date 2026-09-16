@@ -1,6 +1,10 @@
-python3 -m venv .venv
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ! -d .venv ]]; then
+  python3 -m venv .venv
+fi
+
 source .venv/bin/activate
-pip install numpy pandas plotly astropy astroquery
-pip install pyarrow
-pip install pyvista imageio
-python gaia_orion_flythrough.py
+python -m pip install -e ".[pyvista,analysis]"
+python gaia_orion_pyvista.py --mode screenshot --quality preview
