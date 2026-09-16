@@ -23,6 +23,7 @@ class QueryConfig:
     row_limit: int = 8000
     parallax_min_mas: float = 1.0
     parallax_max_mas: float = 8.0
+    parallax_over_error_min: float = 5.0
     gmag_max: float = 15.5
 
 
@@ -39,6 +40,7 @@ def build_query(cfg: QueryConfig) -> str:
         ra,
         dec,
         parallax,
+        parallax_over_error,
         phot_g_mean_mag,
         bp_rp,
         random_index
@@ -50,6 +52,7 @@ def build_query(cfg: QueryConfig) -> str:
         )
         AND parallax IS NOT NULL
         AND parallax BETWEEN {cfg.parallax_min_mas} AND {cfg.parallax_max_mas}
+        AND parallax_over_error >= {cfg.parallax_over_error_min}
         AND phot_g_mean_mag IS NOT NULL
         AND bp_rp IS NOT NULL
         AND phot_g_mean_mag < {cfg.gmag_max}
