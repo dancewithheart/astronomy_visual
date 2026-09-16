@@ -126,8 +126,6 @@ Interactive PyVista window (WIP very early stages):
 python gaia_orion_pyvista.py --mode interactive --quality preview
 ```
 
-![Orbit through the Gaia Orion visualization](./gaia_orion_orbit.gif)
-
 The first run queries Gaia and creates `cache/orion_gaia.fits` plus a Parquet cache
 when `pyarrow` is available. Add `--refresh` to the PyVista command when query
 columns or filters change.
