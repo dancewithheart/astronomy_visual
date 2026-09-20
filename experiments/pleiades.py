@@ -228,6 +228,91 @@ def plot_angular_distance(data: pd.DataFrame) -> None:
         )
     plt.close()
 
+def plot_radial_density(data: pd.DataFrame) -> None:
+    candidate = data[data["cluster"] >= 0]
+    noise = data[data["cluster"] == -1]
+
+    bins = np.linspace(0.0, 1.0, 16)
+
+    def density(stars: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        counts, edges = np.histogram(
+            stars["angular_distance_deg"],
+            bins=bins,
+        )
+
+        annulus_area = np.pi * (
+                edges[1:] ** 2 - edges[:-1] ** 2
+        )
+
+        centers = (edges[:-1] + edges[1:]) / 2
+
+        return centers, counts / annulus_area
+
+    candidate_r, candidate_density = density(candidate)
+    field_r, field_density = density(noise)
+
+    plt.figure(figsize=(8, 6))
+
+    plt.plot(
+        field_r,
+        field_density,
+        marker="o",
+        label="field / noise",
+    )
+
+    plt.plot(
+        candidate_r,
+        candidate_density,
+        marker="o",
+        label="DBSCAN candidate",
+    )
+
+    plt.xlabel("Angular distance from Pleiades centre [deg]")
+    plt.ylabel("Stars / deg²")
+    plt.title("Radial stellar surface density")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        REPORT_DIR / "radial-density.png",
+        dpi=160,
+        )
+    plt.close()
+
+def plot_angular_distance_cdf(data: pd.DataFrame) -> None:
+    plt.figure(figsize=(8, 6))
+
+    for mask, label in [
+        (data["cluster"] == -1, "field / noise"),
+        (data["cluster"] >= 0, "DBSCAN candidate"),
+    ]:
+        distances = np.sort(
+            data.loc[mask, "angular_distance_deg"]
+        )
+
+        fraction = (
+                np.arange(1, len(distances) + 1)
+                / len(distances)
+        )
+
+        plt.plot(
+            distances,
+            fraction,
+            label=label,
+        )
+
+    plt.xlabel("Angular distance from Pleiades centre [deg]")
+    plt.ylabel("Fraction of stars")
+    plt.title("Cumulative radial distribution")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        REPORT_DIR / "angular-distance-cdf.png",
+        dpi=160,
+        )
+    plt.close()
+
 def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     raw = load_dataset(PLEIADES, refresh=refresh)
 
@@ -260,6 +345,8 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     plot_cmd(clustered)
     plot_parallax(clustered)
     plot_angular_distance(clustered)
+    plot_angular_distance_cdf(clustered)
+    plot_radial_density(clustered)
 
 
 def plot_parallax(data: pd.DataFrame) -> None:
