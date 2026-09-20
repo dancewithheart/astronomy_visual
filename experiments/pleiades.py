@@ -157,13 +157,13 @@ def plot_candidate_cmd(data: pd.DataFrame, cluster: int) -> None:
 
     plt.close()
 
-def plot_cmd(data: pd.DataFrame) -> None:
+def plot_cmd(data: pd.DataFrame, candidate_cluster: int) -> None:
     valid = data[
         data["bp_rp"].notna()
         & data["absolute_g_mag"].notna()
         ]
 
-    candidate = valid[valid["cluster"] >= 0]
+    candidate = valid[valid["cluster"] == candidate_cluster]
     noise = valid[valid["cluster"] == -1]
 
     plt.figure(figsize=(7, 8))
@@ -198,39 +198,9 @@ def plot_cmd(data: pd.DataFrame) -> None:
         )
     plt.close()
 
-def plot_angular_distance(data: pd.DataFrame) -> None:
-    candidate = data[data["cluster"] >= 0]
-    noise = data[data["cluster"] == -1]
 
-    plt.figure(figsize=(8, 6))
-
-    plt.hist(
-        noise["angular_distance_deg"],
-        bins=30,
-        alpha=0.4,
-        label="field / noise",
-    )
-
-    plt.hist(
-        candidate["angular_distance_deg"],
-        bins=30,
-        alpha=0.7,
-        label="DBSCAN candidate",
-    )
-
-    plt.xlabel("Angular distance from Pleiades centre [deg]")
-    plt.ylabel("Stars")
-    plt.legend()
-    plt.tight_layout()
-
-    plt.savefig(
-        REPORT_DIR / "angular-distance.png",
-        dpi=160,
-        )
-    plt.close()
-
-def plot_radial_density(data: pd.DataFrame) -> None:
-    candidate = data[data["cluster"] >= 0]
+def plot_radial_density(data: pd.DataFrame, candidate_cluster: int) -> None:
+    candidate = data[data["cluster"] == candidate_cluster]
     noise = data[data["cluster"] == -1]
 
     bins = np.linspace(0.0, 1.0, 16)
@@ -280,12 +250,12 @@ def plot_radial_density(data: pd.DataFrame) -> None:
         )
     plt.close()
 
-def plot_angular_distance_cdf(data: pd.DataFrame) -> None:
+def plot_angular_distance_cdf(data: pd.DataFrame, candidate_cluster: int) -> None:
     plt.figure(figsize=(8, 6))
 
     for mask, label in [
         (data["cluster"] == -1, "field / noise"),
-        (data["cluster"] >= 0, "DBSCAN candidate"),
+        (data["cluster"] == candidate_cluster, "DBSCAN candidate"),
     ]:
         distances = np.sort(
             data.loc[mask, "angular_distance_deg"]
@@ -359,16 +329,14 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
         candidate_cluster = int(summary.index[0])
         print("Largest dense cluster:", candidate_cluster)
         plot_candidate_cmd(clustered, candidate_cluster)
-
-    plot_cmd(clustered)
-    plot_parallax(clustered)
-    plot_angular_distance(clustered)
-    plot_angular_distance_cdf(clustered)
-    plot_radial_density(clustered)
+        plot_cmd(clustered, candidate_cluster)
+        plot_parallax(clustered, candidate_cluster)
+        plot_angular_distance_cdf(clustered, candidate_cluster)
+        plot_radial_density(clustered, candidate_cluster)
 
 
-def plot_parallax(data: pd.DataFrame) -> None:
-    candidate = data[data["cluster"] >= 0]
+def plot_parallax(data: pd.DataFrame, candidate_cluster: int) -> None:
+    candidate = data[data["cluster"] == candidate_cluster]
     noise = data[data["cluster"] == -1]
 
     plt.figure(figsize=(8, 6))
