@@ -145,6 +145,46 @@ def plot_candidate_cmd(data: pd.DataFrame, cluster: int) -> None:
 
     plt.close()
 
+def plot_cmd(data: pd.DataFrame) -> None:
+    valid = data[
+        data["bp_rp"].notna()
+        & data["phot_g_mean_mag"].notna()
+        ]
+
+    candidate = valid[valid["cluster"] >= 0]
+    noise = valid[valid["cluster"] == -1]
+
+    plt.figure(figsize=(7, 8))
+
+    plt.scatter(
+        noise["bp_rp"],
+        noise["phot_g_mean_mag"],
+        s=8,
+        alpha=0.25,
+        label="field / noise",
+    )
+
+    plt.scatter(
+        candidate["bp_rp"],
+        candidate["phot_g_mean_mag"],
+        s=10,
+        alpha=0.7,
+        label="DBSCAN candidate",
+    )
+
+    plt.xlabel("BP - RP")
+    plt.ylabel("G magnitude")
+    plt.title("Pleiades candidate vs field stars")
+    plt.gca().invert_yaxis()
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        REPORT_DIR / "cmd-candidate-vs-field.png",
+        dpi=160,
+        )
+    plt.close()
+
 def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     raw = load_dataset(PLEIADES, refresh=refresh)
 
@@ -175,7 +215,9 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     if not summary.empty:
         candidate_cluster = int(summary.index[0])
         print("Largest dense cluster:", candidate_cluster)
-        plot_candidate_cmd(clustered, candidate_cluster,)
+        plot_candidate_cmd(clustered, candidate_cluster)
+
+    plot_cmd(clustered)
 
 
 if __name__ == "__main__":
