@@ -34,11 +34,13 @@ class QueryConfig:
     radius_deg: float
 
     row_limit: int = 100_000
+    table: str = "gaiadr3.gaia_source_lite"
 
     g_mag_max: float | None = None
     parallax_over_error_min: float | None = None
     parallax_min: float | None = None
     parallax_max: float | None = None
+    ruwe_max: float | None = None
 
 
 def build_query(config: QueryConfig) -> str:
@@ -58,6 +60,9 @@ def build_query(config: QueryConfig) -> str:
     if config.g_mag_max is not None:
         conditions.append(f"phot_g_mean_mag < {config.g_mag_max}")
 
+    if config.ruwe_max is not None:
+        conditions.append(f"ruwe < {config.ruwe_max}")
+
     if config.parallax_over_error_min is not None:
         conditions.append(
             "parallax_over_error >= "
@@ -73,7 +78,7 @@ def build_query(config: QueryConfig) -> str:
     return f"""
 SELECT TOP {config.row_limit}
     {columns}
-FROM gaiadr3.gaia_source_lite
+FROM {config.table}
 WHERE {where}
 """.strip()
 
