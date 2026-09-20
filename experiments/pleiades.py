@@ -134,13 +134,13 @@ def plot_candidate_cmd(data: pd.DataFrame, cluster: int) -> None:
 
     plt.scatter(
         candidate["bp_rp"],
-        candidate["phot_g_mean_mag"],
+        candidate["absolute_g_mag"],
         s=8,
         alpha=0.7,
     )
 
     plt.xlabel("BP - RP")
-    plt.ylabel("G magnitude")
+    plt.ylabel("Absolute G magnitude")
     plt.title(
         f"Colour-magnitude diagram: cluster {cluster}"
     )
@@ -160,7 +160,7 @@ def plot_candidate_cmd(data: pd.DataFrame, cluster: int) -> None:
 def plot_cmd(data: pd.DataFrame) -> None:
     valid = data[
         data["bp_rp"].notna()
-        & data["phot_g_mean_mag"].notna()
+        & data["absolute_g_mag"].notna()
         ]
 
     candidate = valid[valid["cluster"] >= 0]
@@ -170,7 +170,7 @@ def plot_cmd(data: pd.DataFrame) -> None:
 
     plt.scatter(
         noise["bp_rp"],
-        noise["phot_g_mean_mag"],
+        noise["absolute_g_mag"],
         s=8,
         alpha=0.25,
         label="field / noise",
@@ -178,19 +178,20 @@ def plot_cmd(data: pd.DataFrame) -> None:
 
     plt.scatter(
         candidate["bp_rp"],
-        candidate["phot_g_mean_mag"],
+        candidate["absolute_g_mag"],
         s=10,
         alpha=0.7,
         label="DBSCAN candidate",
     )
 
     plt.xlabel("BP - RP")
-    plt.ylabel("G magnitude")
+    plt.ylabel("Absolute G magnitude")
     plt.title("Pleiades candidate vs field stars")
+
     plt.gca().invert_yaxis()
     plt.legend()
-
     plt.tight_layout()
+
     plt.savefig(
         REPORT_DIR / "cmd-candidate-vs-field.png",
         dpi=160,
@@ -313,11 +314,28 @@ def plot_angular_distance_cdf(data: pd.DataFrame) -> None:
         )
     plt.close()
 
+
+def add_absolute_g_magnitude(
+        data: pd.DataFrame,
+) -> pd.DataFrame:
+    result = data.copy()
+
+    distance_pc = 1000.0 / result["parallax"]
+
+    result["absolute_g_mag"] = (
+            result["phot_g_mean_mag"]
+            - 5 * np.log10(distance_pc)
+            + 5
+    )
+
+    return result
+
 def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     raw = load_dataset(PLEIADES, refresh=refresh)
 
     print(f"Downloaded stars: {len(raw):,}")
     prepared = prepare_features(raw)
+    prepared = add_absolute_g_magnitude(prepared)
     print(
         f"Stars after preparation: "
         f"{len(prepared):,}"
