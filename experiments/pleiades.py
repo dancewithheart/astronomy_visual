@@ -218,7 +218,40 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
         plot_candidate_cmd(clustered, candidate_cluster)
 
     plot_cmd(clustered)
+    plot_parallax(clustered)
 
+
+def plot_parallax(data: pd.DataFrame) -> None:
+    candidate = data[data["cluster"] >= 0]
+    noise = data[data["cluster"] == -1]
+
+    plt.figure(figsize=(8, 6))
+
+    plt.hist(
+        noise["parallax"],
+        bins=40,
+        alpha=0.4,
+        label="field / noise",
+    )
+
+    plt.hist(
+        candidate["parallax"],
+        bins=40,
+        alpha=0.7,
+        label="DBSCAN candidate",
+    )
+
+    plt.xlabel("Parallax [mas]")
+    plt.ylabel("Stars")
+    plt.title("Parallax distribution")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        REPORT_DIR / "parallax.png",
+        dpi=160,
+        )
+    plt.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
