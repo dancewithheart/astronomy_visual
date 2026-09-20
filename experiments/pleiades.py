@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
@@ -12,6 +13,17 @@ from datasets import PLEIADES, load_dataset
 FEATURES = ["parallax", "pmra", "pmdec"]
 
 REPORT_DIR = Path("reports/pleiades")
+
+PLEIADES_RA = 56.87125
+PLEIADES_DEC = 24.10493
+
+
+def add_angular_distance(data: pd.DataFrame) -> pd.DataFrame:
+    result = data.copy()
+    dra = (result["ra"] - PLEIADES_RA) * np.cos(np.radians(PLEIADES_DEC))
+    ddec = result["dec"] - PLEIADES_DEC
+    result["angular_distance_deg"] = np.sqrt(dra**2 + ddec**2)
+    return result
 
 
 def prepare_features(data: pd.DataFrame) -> pd.DataFrame:
@@ -185,6 +197,37 @@ def plot_cmd(data: pd.DataFrame) -> None:
         )
     plt.close()
 
+def plot_angular_distance(data: pd.DataFrame) -> None:
+    candidate = data[data["cluster"] >= 0]
+    noise = data[data["cluster"] == -1]
+
+    plt.figure(figsize=(8, 6))
+
+    plt.hist(
+        noise["angular_distance_deg"],
+        bins=30,
+        alpha=0.4,
+        label="field / noise",
+    )
+
+    plt.hist(
+        candidate["angular_distance_deg"],
+        bins=30,
+        alpha=0.7,
+        label="DBSCAN candidate",
+    )
+
+    plt.xlabel("Angular distance from Pleiades centre [deg]")
+    plt.ylabel("Stars")
+    plt.legend()
+    plt.tight_layout()
+
+    plt.savefig(
+        REPORT_DIR / "angular-distance.png",
+        dpi=160,
+        )
+    plt.close()
+
 def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     raw = load_dataset(PLEIADES, refresh=refresh)
 
@@ -195,11 +238,8 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
         f"{len(prepared):,}"
     )
 
-    clustered = cluster_stars(
-        prepared,
-        eps=eps,
-        min_samples=min_samples,
-    )
+    clustered = cluster_stars(prepared, eps=eps, min_samples=min_samples)
+    clustered = add_angular_distance(clustered)
 
     summary = summarize_clusters(clustered)
     print()
@@ -219,6 +259,7 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
 
     plot_cmd(clustered)
     plot_parallax(clustered)
+    plot_angular_distance(clustered)
 
 
 def plot_parallax(data: pd.DataFrame) -> None:
