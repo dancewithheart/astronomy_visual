@@ -2,6 +2,10 @@
 
 ## Pleiades - detect cluster using DBSCAN
 
+```sh
+python -m experiments.pleiades --refresh
+```
+
 Approach:
 ```
 query Gaia dataset
