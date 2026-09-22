@@ -327,7 +327,7 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
         plot_sky(clustered)
 
     if not summary.empty:
-        candidate_cluster = int(summary.index[0])
+        candidate_cluster = int(summary.index[1])
         print("Largest dense cluster:", candidate_cluster)
         if make_plots:
             plot_candidate_cmd(clustered, candidate_cluster)
