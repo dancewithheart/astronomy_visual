@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 analysis = [
     "matplotlib>=3.9,<4",
+    "scikit-learn>=1.9,<2",
 ]
 pyvista = [
     "imageio>=2.36,<3",
@@ -27,6 +28,7 @@ pyvista = [
     "pyvista>=0.45,<1",
 ]
 dev = [
+    "hypothesis>=6,<7",
     "pytest>=8.3,<9",
     "ruff>=0.6,<1",
 ]
