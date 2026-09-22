@@ -54,7 +54,7 @@ down to cool/red faint stars.
 
 That is nice evidence supporting claim that DBSCAN did not find accidental data.
 
-## Parameters tuning for HDBSCAN
+## Parameters tuning for DBSCAN
 
 ```
 python -m experiments.pleiades_tune
