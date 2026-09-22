@@ -207,7 +207,7 @@ def plot_radial_density(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
     noise = data[data["cluster"] != candidate_cluster]
 
-    bins = np.linspace(0.0, 1.0, 16)
+    bins = np.linspace(0.0, PLEIADES.query.radius_deg,31)
 
     def density(stars: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         counts, edges = np.histogram(
@@ -331,7 +331,7 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
         plot_sky(clustered)
 
     if not summary.empty:
-        candidate_cluster = int(summary.index[1])
+        candidate_cluster = int(summary.index[1]) if summary.last_valid_index() >= 1 else summary.index[0]
         print("Pleiades candidate cluster:", candidate_cluster)
         if make_plots:
             plot_candidate_cmd(clustered, candidate_cluster)
@@ -344,7 +344,7 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
         "eps": eps,
         "min_samples": min_samples,
         "clusters": len(summary),
-        "noise": noise
+        "noise": int(noise)
     }
 
 
