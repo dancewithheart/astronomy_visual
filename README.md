@@ -54,6 +54,24 @@ down to cool/red faint stars.
 
 That is nice evidence supporting claim that DBSCAN did not find accidental data.
 
+## Parameters tuning for HDBSCAN
+
+```
+python -m experiments.pleiades_tune
+```
+
+After dropping conditions on parallex there are more data 4k sorces
+and more than one cluster.
+
+But across different parameters the same cluster is found:
+```
+parallax ≈ 7.36 mas
+pmra     ≈ +19.72 mas/yr
+pmdec    ≈ -45.32 mas/yr
+```
+
+so keep the originally chose parameter.
+
 ## Resources
 
 * [astroML](https://www.astroml.org/examples) Python project, built around statistics and ML on astronomical datasets. Its examples include classification, regression, density estimation, dimensionality reduction, clustering and time-series analysis using NumPy/scikit-learn/Astropy
