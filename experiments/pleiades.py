@@ -84,6 +84,10 @@ def plot_proper_motion(data: pd.DataFrame) -> None:
     plt.ylabel("pmdec [mas/year]")
     plt.title("Gaia proper motions around the Pleiades")
 
+    # Display limits only — does NOT affect DBSCAN/data.
+    plt.xlim(-75, 100)
+    plt.ylim(-125, 50)
+
     plt.tight_layout()
 
     plt.savefig(
@@ -164,7 +168,7 @@ def plot_cmd(data: pd.DataFrame, candidate_cluster: int) -> None:
         ]
 
     candidate = valid[valid["cluster"] == candidate_cluster]
-    noise = valid[valid["cluster"] == -1]
+    noise = valid[valid["cluster"] != candidate_cluster]
 
     plt.figure(figsize=(7, 8))
 
@@ -201,7 +205,7 @@ def plot_cmd(data: pd.DataFrame, candidate_cluster: int) -> None:
 
 def plot_radial_density(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
-    noise = data[data["cluster"] == -1]
+    noise = data[data["cluster"] != candidate_cluster]
 
     bins = np.linspace(0.0, 1.0, 16)
 
@@ -300,7 +304,7 @@ def add_absolute_g_magnitude(
 
     return result
 
-def main(*, refresh: bool, eps: float, min_samples: int) -> None:
+def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
     raw = load_dataset(PLEIADES, refresh=refresh)
 
     print(f"Downloaded stars: {len(raw):,}")
@@ -322,22 +326,31 @@ def main(*, refresh: bool, eps: float, min_samples: int) -> None:
     print()
     print(f"Noise stars: {noise:,}")
 
-    plot_proper_motion(clustered)
-    plot_sky(clustered)
+    if make_plots:
+        plot_proper_motion(clustered)
+        plot_sky(clustered)
 
     if not summary.empty:
-        candidate_cluster = int(summary.index[0])
-        print("Largest dense cluster:", candidate_cluster)
-        plot_candidate_cmd(clustered, candidate_cluster)
-        plot_cmd(clustered, candidate_cluster)
-        plot_parallax(clustered, candidate_cluster)
-        plot_angular_distance_cdf(clustered, candidate_cluster)
-        plot_radial_density(clustered, candidate_cluster)
+        candidate_cluster = int(summary.index[1])
+        print("Pleiades candidate cluster:", candidate_cluster)
+        if make_plots:
+            plot_candidate_cmd(clustered, candidate_cluster)
+            plot_cmd(clustered, candidate_cluster)
+            plot_parallax(clustered, candidate_cluster)
+            plot_angular_distance_cdf(clustered, candidate_cluster)
+            plot_radial_density(clustered, candidate_cluster)
+
+    return {
+        "eps": eps,
+        "min_samples": min_samples,
+        "clusters": len(summary),
+        "noise": noise
+    }
 
 
 def plot_parallax(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
-    noise = data[data["cluster"] == -1]
+    noise = data[data["cluster"] != candidate_cluster]
 
     plt.figure(figsize=(8, 6))
 
@@ -374,4 +387,4 @@ if __name__ == "__main__":
     parser.add_argument("--min-samples", type=int, default=15)
     args = parser.parse_args()
 
-    main(refresh=args.refresh, eps=args.eps, min_samples=args.min_samples)
+    main(refresh=args.refresh, eps=args.eps, min_samples=args.min_samples, make_plots=True)

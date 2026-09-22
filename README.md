@@ -2,6 +2,10 @@
 
 ## Pleiades - detect cluster using DBSCAN
 
+```sh
+python -m experiments.pleiades --refresh
+```
+
 Approach:
 ```
 query Gaia dataset
@@ -49,6 +53,24 @@ Cluster 0 forms a nice stellar sequence from hot/blue bright stars
 down to cool/red faint stars.
 
 That is nice evidence supporting claim that DBSCAN did not find accidental data.
+
+## Parameters tuning for DBSCAN
+
+```
+python -m experiments.pleiades_tune
+```
+
+After dropping conditions on parallex there are more data 4k sorces
+and more than one cluster.
+
+But across different parameters the same cluster is found:
+```
+parallax ≈ 7.36 mas
+pmra     ≈ +19.72 mas/yr
+pmdec    ≈ -45.32 mas/yr
+```
+
+so keep the originally chose parameter.
 
 ## Resources
 
