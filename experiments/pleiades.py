@@ -84,6 +84,10 @@ def plot_proper_motion(data: pd.DataFrame) -> None:
     plt.ylabel("pmdec [mas/year]")
     plt.title("Gaia proper motions around the Pleiades")
 
+    # Display limits only — does NOT affect DBSCAN/data.
+    plt.xlim(-75, 100)
+    plt.ylim(-125, 50)
+
     plt.tight_layout()
 
     plt.savefig(
