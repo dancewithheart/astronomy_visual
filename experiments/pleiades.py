@@ -164,7 +164,7 @@ def plot_cmd(data: pd.DataFrame, candidate_cluster: int) -> None:
         ]
 
     candidate = valid[valid["cluster"] == candidate_cluster]
-    noise = valid[valid["cluster"] == -1]
+    noise = valid[valid["cluster"] != candidate_cluster]
 
     plt.figure(figsize=(7, 8))
 
@@ -201,7 +201,7 @@ def plot_cmd(data: pd.DataFrame, candidate_cluster: int) -> None:
 
 def plot_radial_density(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
-    noise = data[data["cluster"] == -1]
+    noise = data[data["cluster"] != candidate_cluster]
 
     bins = np.linspace(0.0, 1.0, 16)
 
@@ -346,7 +346,7 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
 
 def plot_parallax(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
-    noise = data[data["cluster"] == -1]
+    noise = data[data["cluster"] != candidate_cluster]
 
     plt.figure(figsize=(8, 6))
 
