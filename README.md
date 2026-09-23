@@ -144,14 +144,34 @@ Gets astronomy data from Gaia DR3 data source about stars around [Orion](https:/
 
 - parallax measurement quality
 
-- ![parallax measurement quality](reports/orion/analysis/parallax-quality.png)
+![parallax measurement quality](reports/orion/analysis/parallax-quality.png)
 
 ```sh
 python gaia_orion_pyvista.py --mode screenshot --quality draft
+python gaia_orion_pyvista.py --mode screenshot --quality final
+python gaia_orion_pyvista.py --mode interactive --quality preview
 ```
 
-renders those stars in 3D using:
+on Ubuntu, PyVista needed OpenGL libraries:
+
+```bash
+sudo apt-get install -y libgl1 libglx-mesa0 libegl1
+```
+
+Renders those Orion constellation in 3D using:
 - distances computed from parallax
 - Gaia BP−RP colours
+or open interactive mode.
 
 The current nebula dust is artistic - Gaussian blobs around bright stars and AI-tuned warm/cool gradients.
+
+![syntetic Orion visualisation](reports/orion/gaia_orion_pyvista.png)
+
+
+Interactive Plotly visualization (should open on http://127.0.0.1:43701/):
+
+```bash
+python gaia_orion_flythrough.py
+```
+
+![Interactive Orion visualisation](reports/orion/plotly_visualisation.png)
