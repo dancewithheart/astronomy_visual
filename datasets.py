@@ -61,7 +61,3 @@ def load_dataset(dataset: GaiaDataset, *, refresh: bool = False) -> pd.DataFrame
     data.to_csv(cache, index=False)
 
     return data
-
-def count_dataset(dataset: GaiaDataset) -> pd.DataFrame:
-    data = query_gaia_count(dataset.query)
-    return data
