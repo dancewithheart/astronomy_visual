@@ -32,6 +32,7 @@ ORION = GaiaDataset(
         parallax_over_error_min=5.0,
         parallax_min=1.0,
         parallax_max=8.0,
+        ruwe_max=1.4,
     )
 )
 
