@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from gaia import QueryConfig, query_gaia, query_gaia_count
+from gaia import QueryConfig, query_gaia
 
 
 DATA_DIR = Path("data")
@@ -41,7 +41,7 @@ PLEIADES = GaiaDataset(
     query=QueryConfig(
         ra_deg=56.87125,
         dec_deg=24.10493,
-        radius_deg=1.0,
+        radius_deg=3.0,
         row_limit=50_000,
         parallax_over_error_min=10.0,
         ruwe_max=1.4,
