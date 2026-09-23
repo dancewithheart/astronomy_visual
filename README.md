@@ -70,7 +70,7 @@ pmra     ≈ +19.72 mas/yr
 pmdec    ≈ -45.32 mas/yr
 ```
 
-After varying eps and in the best combination was eps=0.1 and min_samples=50
+After varying eps and in the best combination was eps=0.05 and min_samples=15
 ```
 eps=0.05
 min_samples=15
@@ -86,9 +86,9 @@ F1:        0.931
 ```
 it improves initial parameter choice:
 ```
-precision: 0.712 → 0.822
-F1:        0.832 → 0.974
-recall:    1.000 → 0.931
+precision: 0.712 → 0.892
+recall:    1.000 → 0.974
+F1:        0.832 → 0.931
 ```
 
 In data there is visible *precision–recall trade-off*
@@ -130,7 +130,8 @@ F1        = 0.844
 ## Orion constellation - data exploration and visualisation
 
 ```sh
-python gaia_analysis.py
+python -m experiments.orion.analysis
+python -m experiments.orion.analysis --refresh
 ```
 
 Gets astronomy data from Gaia DR3 data source about stars around [Orion](https://en.wikipedia.org/wiki/Orion_(constellation)):
@@ -147,9 +148,10 @@ Gets astronomy data from Gaia DR3 data source about stars around [Orion](https:/
 ![parallax measurement quality](reports/orion/analysis/parallax-quality.png)
 
 ```sh
-python gaia_orion_pyvista.py --mode screenshot --quality draft
-python gaia_orion_pyvista.py --mode screenshot --quality final
-python gaia_orion_pyvista.py --mode interactive --quality preview
+python -m experiments.orion.pyvista --mode screenshot --quality draft
+python -m experiments.orion.pyvista --mode screenshot --quality final
+python -m experiments.orion.pyvista --mode mp4 --quality final
+python -m experiments.orion.pyvista --mode interactive --quality preview
 ```
 
 on Ubuntu, PyVista needed OpenGL libraries:
@@ -171,7 +173,7 @@ The current nebula dust is artistic - Gaussian blobs around bright stars and AI-
 Interactive Plotly visualization (should open on http://127.0.0.1:43701/):
 
 ```bash
-python gaia_orion_flythrough.py
+python -m experiments.orion.flythrough
 ```
 
 ![Interactive Orion visualisation](reports/orion/plotly_visualisation.png)
