@@ -77,7 +77,7 @@ def prepare_features(data: pd.DataFrame) -> pd.DataFrame:
 def cluster_stars(
         data: pd.DataFrame,
         *,
-        eps: float = 0.25,
+        eps: float = 0.05,
         min_samples: int = 15,
 ) -> pd.DataFrame:
     result = data.copy()
@@ -297,7 +297,7 @@ def plot_angular_distance_cdf(data: pd.DataFrame, candidate_cluster: int) -> Non
     plt.figure(figsize=(8, 6))
 
     for mask, label in [
-        (data["cluster"] == -1, "field / noise"),
+        (data["cluster"] != candidate_cluster, "field / noise"),
         (data["cluster"] == candidate_cluster, "DBSCAN candidate"),
     ]:
         distances = np.sort(
@@ -361,7 +361,24 @@ def evaluate_pleiades_cluster(data: pd.DataFrame, reference_ids: set[int]) -> di
     )
 
     if overlap.empty:
-        pleiades_cluster = -1
+        truth = result["reference_member"]
+
+        return {
+            "pleiades_cluster": -1,
+            "pleiades_cluster_size": 0,
+            "reference_members": len(reference_ids),
+            "reference_in_sample": int(truth.sum()),
+            "tp": 0,
+            "fp": 0,
+            "fn": int(truth.sum()),
+            "tn": int((~truth).sum()),
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "median_parallax": float("nan"),
+            "median_pmra": float("nan"),
+            "median_pmdec": float("nan"),
+        }
     else:
         pleiades_cluster = int(overlap.idxmax())
 
@@ -518,7 +535,7 @@ def plot_parallax(data: pd.DataFrame, candidate_cluster: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh", action="store_true")
-    parser.add_argument("--eps", type=float, default=0.25)
+    parser.add_argument("--eps", type=float, default=0.05)
     parser.add_argument("--min-samples", type=int, default=15)
     args = parser.parse_args()
 
