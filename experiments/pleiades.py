@@ -9,6 +9,47 @@ from sklearn.preprocessing import StandardScaler
 
 from datasets import PLEIADES, load_dataset
 
+from astroquery.vizier import Vizier
+
+import pandas as pd
+
+REFERENCE_CATALOG = "J/A+A/677/A163/members"
+
+
+def load_reference_pleiades() -> pd.DataFrame:
+    vizier = Vizier(
+        columns=["GaiaDR3", "Cluster"],
+        row_limit=-1,
+    )
+
+    tables = vizier.get_catalogs(REFERENCE_CATALOG)
+
+    reference = tables[0].to_pandas()
+
+    # VizieR strings can occasionally arrive as bytes.
+    reference["Cluster"] = reference["Cluster"].map(
+        lambda value:
+        value.decode()
+        if isinstance(value, bytes)
+        else str(value)
+    )
+
+    pleiades = reference[
+        reference["Cluster"].str.strip().str.casefold()
+        == "pleiades"
+        ].copy()
+
+    pleiades = pleiades.rename(
+        columns={"GaiaDR3": "source_id"}
+    )
+
+    pleiades["source_id"] = (
+        pleiades["source_id"]
+        .astype("int64")
+    )
+
+    return pleiades[["source_id"]].drop_duplicates()
+
 
 FEATURES = ["parallax", "pmra", "pmdec"]
 
@@ -304,6 +345,138 @@ def add_absolute_g_magnitude(
 
     return result
 
+def evaluate_pleiades_cluster(data: pd.DataFrame, reference_ids: set[int]) -> dict[str, float | int]:
+    result = data.copy()
+
+    result["reference_member"] = (
+        result["source_id"]
+        .astype("int64")
+        .isin(reference_ids)
+    )
+
+    clusters = result[result["cluster"] >= 0]
+
+    if clusters.empty:
+        return {
+            "pleiades_cluster": -1,
+            "pleiades_cluster_size": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "median_parallax": float("nan"),
+            "median_pmra": float("nan"),
+            "median_pmdec": float("nan"),
+        }
+
+    # Which DBSCAN cluster contains the most published Pleiades members?
+    overlap = (
+        clusters[clusters["reference_member"]]
+        .groupby("cluster")
+        .size()
+    )
+
+    if overlap.empty:
+        pleiades_cluster = -1
+    else:
+        pleiades_cluster = int(overlap.idxmax())
+
+    candidate = result["cluster"] == pleiades_cluster
+    truth = result["reference_member"]
+
+    tp = int((candidate & truth).sum())
+    fp = int((candidate & ~truth).sum())
+    fn = int((~candidate & truth).sum())
+
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision + recall
+        else 0.0
+    )
+
+    members = result[candidate]
+
+    return {
+        "pleiades_cluster": pleiades_cluster,
+        "pleiades_cluster_size": len(members),
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "median_parallax": members["parallax"].median(),
+        "median_pmra": members["pmra"].median(),
+        "median_pmdec": members["pmdec"].median(),
+    }
+
+def evaluate_against_reference(
+        data: pd.DataFrame,
+        candidate_cluster: int,
+        reference: pd.DataFrame,
+) -> pd.DataFrame:
+    result = data.copy()
+
+    reference_ids = set(
+        reference["source_id"].astype("int64")
+    )
+
+    result["reference_member"] = (
+        result["source_id"]
+        .astype("int64")
+        .isin(reference_ids)
+    )
+
+    result["predicted_member"] = (
+            result["cluster"] == candidate_cluster
+    )
+
+    truth = result["reference_member"]
+    predicted = result["predicted_member"]
+
+    tp = int((truth & predicted).sum())
+    fp = int((~truth & predicted).sum())
+    fn = int((truth & ~predicted).sum())
+    tn = int((~truth & ~predicted).sum())
+
+    precision = (
+        tp / (tp + fp)
+        if tp + fp > 0
+        else 0.0
+    )
+
+    recall = (
+        tp / (tp + fn)
+        if tp + fn > 0
+        else 0.0
+    )
+
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision + recall > 0
+        else 0.0
+    )
+
+    print()
+    print("Published reference catalogue")
+    print(f"  Pleiades members:       {len(reference_ids)}")
+    print(
+        "  present in our sample:  "
+        f"{truth.sum()}"
+    )
+
+    print()
+    print("Classification")
+    print(f"  true positives:  {tp}")
+    print(f"  false positives: {fp}")
+    print(f"  false negatives: {fn}")
+    print(f"  true negatives:  {tn}")
+
+    print()
+    print(f"  precision: {precision:.3f}")
+    print(f"  recall:    {recall:.3f}")
+    print(f"  F1:        {f1:.3f}")
+
+    return result
+
 def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
     raw = load_dataset(PLEIADES, refresh=refresh)
 
@@ -333,6 +506,15 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
     if not summary.empty:
         candidate_cluster = int(summary.index[1]) if summary.last_valid_index() >= 1 else summary.index[0]
         print("Pleiades candidate cluster:", candidate_cluster)
+
+        reference = load_reference_pleiades()
+
+        evaluation = evaluate_against_reference(
+            clustered,
+            candidate_cluster,
+            reference,
+        )
+
         if make_plots:
             plot_candidate_cmd(clustered, candidate_cluster)
             plot_cmd(clustered, candidate_cluster)
@@ -344,7 +526,8 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
         "eps": eps,
         "min_samples": min_samples,
         "clusters": len(summary),
-        "noise": int(noise)
+        "noise": int(noise),
+        **evaluation,
     }
 
 
