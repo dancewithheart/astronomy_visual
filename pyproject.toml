@@ -34,7 +34,15 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["gaia_orion_flythrough", "gaia_orion_pyvista", "gaia_analysis"]
+py-modules = [
+    "astrometry",
+    "datasets",
+    "gaia",
+    "gaia_analysis",
+    "gaia_orion_flythrough",
+    "gaia_orion_pyvista",
+    "gaia_style",
+]
 
 [tool.ruff]
 line-length = 120

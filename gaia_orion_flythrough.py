@@ -2,168 +2,49 @@
 from __future__ import annotations
 
 import math
-import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from astroquery.gaia import Gaia
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-from astropy.table import Table
+
+from astrometry import add_local_cartesian
+from datasets import ORION, load_dataset
+
+REPORT_DIR = Path("reports/orion")
+HTML_FILE = REPORT_DIR / "gaia_orion_local_3d.html"
 
 
-@dataclass(frozen=True)
-class QueryConfig:
-    ra_deg: float = 83.82208
-    dec_deg: float = -5.39111
-    radius_deg: float = 3.0
-    row_limit: int = 8000
-    parallax_min_mas: float = 1.0
-    parallax_max_mas: float = 8.0
-    parallax_over_error_min: float = 5.0
-    gmag_max: float = 15.5
-
-
-CACHE_DIR = Path("cache")
-PARQUET_FILE = CACHE_DIR / "orion_gaia.parquet"
-FITS_FILE = CACHE_DIR / "orion_gaia.fits"
-HTML_FILE = Path("gaia_orion_local_3d.html")
-
-
-def build_query(cfg: QueryConfig) -> str:
-    return f"""
-    SELECT TOP {cfg.row_limit}
-        source_id,
-        ra,
-        dec,
-        parallax,
-        parallax_over_error,
-        phot_g_mean_mag,
-        bp_rp,
-        random_index
-    FROM gaiadr3.gaia_source
-    WHERE
-        1 = CONTAINS(
-            POINT('ICRS', ra, dec),
-            CIRCLE('ICRS', {cfg.ra_deg}, {cfg.dec_deg}, {cfg.radius_deg})
-        )
-        AND parallax IS NOT NULL
-        AND parallax BETWEEN {cfg.parallax_min_mas} AND {cfg.parallax_max_mas}
-        AND parallax_over_error >= {cfg.parallax_over_error_min}
-        AND phot_g_mean_mag IS NOT NULL
-        AND bp_rp IS NOT NULL
-        AND phot_g_mean_mag < {cfg.gmag_max}
-    ORDER BY random_index
-    """
-
-
-def query_gaia_table(cfg: QueryConfig) -> Table:
-    Gaia.ROW_LIMIT = -1
-    query = build_query(cfg)
-
-    launchers = [
-        ("sync", lambda: Gaia.launch_job(query)),
-        ("async", lambda: Gaia.launch_job_async(query)),
-    ]
-
-    last_error = None
-    for name, launcher in launchers:
-        try:
-            print(f"Trying Gaia query via {name}...")
-            time.sleep(1.0)
-            job = launcher()
-            tbl = job.get_results()
-            if len(tbl) == 0:
-                raise RuntimeError("Gaia query returned 0 rows")
-            print(f"Downloaded {len(tbl):,} rows")
-            return tbl
-        except Exception as e:
-            print(f"{name} query failed: {e}")
-            last_error = e
-
-    raise RuntimeError("Both Gaia query methods failed") from last_error
-
-
-def save_table_local(tbl: Table) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    # FITS always works well for astronomy tables
-    tbl.write(FITS_FILE, format="fits", overwrite=True)
-    print(f"Saved {FITS_FILE}")
-
-    # Parquet is nice for fast reloads if pyarrow is installed
-    try:
-        tbl.write(PARQUET_FILE, format="parquet", overwrite=True)
-        print(f"Saved {PARQUET_FILE}")
-    except Exception as e:
-        print(f"Parquet save skipped: {e}")
-
-
-def load_local_table() -> Table | None:
-    if PARQUET_FILE.exists():
-        print(f"Loading cached Parquet: {PARQUET_FILE}")
-        return Table.read(PARQUET_FILE, format="parquet")
-
-    if FITS_FILE.exists():
-        print(f"Loading cached FITS: {FITS_FILE}")
-        return Table.read(FITS_FILE, format="fits")
-
-    return None
-
-
-def get_data(cfg: QueryConfig, refresh: bool = False) -> pd.DataFrame:
-    if not refresh:
-        cached = load_local_table()
-        if cached is not None:
-            return cached.to_pandas()
-
-    tbl = query_gaia_table(cfg)
-    save_table_local(tbl)
-    return tbl.to_pandas()
-
-
-def add_derived_columns(df: pd.DataFrame, center_ra_deg: float, center_dec_deg: float) -> pd.DataFrame:
-    df = df.copy()
-
-    df["distance_pc"] = 1000.0 / df["parallax"]
-    df["bp_rp_clamped"] = df["bp_rp"].clip(-0.5, 4.0)
-
-    center = SkyCoord(ra=center_ra_deg * u.deg, dec=center_dec_deg * u.deg, frame="icrs")
-    stars = SkyCoord(
-        ra=df["ra"].to_numpy() * u.deg,
-        dec=df["dec"].to_numpy() * u.deg,
-        distance=df["distance_pc"].to_numpy() * u.pc,
-        frame="icrs",
+def prepare_orion_data(data: pd.DataFrame) -> pd.DataFrame:
+    result = add_local_cartesian(
+        data,
+        center_ra_deg=ORION.query.ra_deg,
+        center_dec_deg=ORION.query.dec_deg,
     )
 
-    sep = center.separation(stars)
-    pa = center.position_angle(stars)
+    result["bp_rp_clamped"] = result["bp_rp"].clip(-0.5, 4.0)
 
-    dist_pc = stars.distance.to_value(u.pc)
+    brightness = 10 ** (-0.4 * result["phot_g_mean_mag"].to_numpy())
+    brightness /= np.nanpercentile(brightness, 99.5)
 
-    # Local region coordinates instead of Earth-centered Cartesian
-    dx = dist_pc * np.tan(sep.to_value(u.rad)) * np.sin(pa.to_value(u.rad))
-    dy = dist_pc * np.tan(sep.to_value(u.rad)) * np.cos(pa.to_value(u.rad))
-    dz = dist_pc - np.median(dist_pc)
-
-    df["x"] = dx
-    df["y"] = dy
-    df["z"] = dz
-
-    brightness = 10 ** (-0.4 * df["phot_g_mean_mag"].to_numpy())
-    brightness = brightness / np.nanpercentile(brightness, 99.5)
-    df["size"] = 0.35 + 1.5 * np.clip(np.sqrt(brightness), 0, 1.0)
-
-    df["hover"] = (
-        "Gaia DR3 source: " + df["source_id"].astype(str)
-        + "<br>G mag: " + df["phot_g_mean_mag"].round(2).astype(str)
-        + "<br>BP-RP: " + df["bp_rp"].round(2).astype(str)
-        + "<br>Distance: " + df["distance_pc"].round(1).astype(str) + " pc"
+    result["size"] = (
+            0.35
+            + 1.5 * np.clip(np.sqrt(brightness), 0, 1.0)
     )
-    return df
+
+    result["hover"] = (
+            "Gaia DR3 source: "
+            + result["source_id"].astype(str)
+            + "<br>G mag: "
+            + result["phot_g_mean_mag"].round(2).astype(str)
+            + "<br>BP-RP: "
+            + result["bp_rp"].round(2).astype(str)
+            + "<br>Distance: "
+            + result["distance_pc"].round(1).astype(str)
+            + " pc"
+    )
+
+    return result
 
 
 def make_nebula_points(
@@ -423,13 +304,13 @@ def add_camera_orbit_frames(fig: go.Figure, n_frames: int = 90, radius: float = 
 
 
 def main(refresh: bool = False) -> None:
-    cfg = QueryConfig()
-    df = get_data(cfg, refresh=refresh)
-    df = add_derived_columns(df, cfg.ra_deg, cfg.dec_deg)
+    data = load_dataset(ORION, refresh=refresh)
+    data = prepare_orion_data(data)
 
-    fig = make_figure(df)
+    fig = make_figure(data)
     fig = add_camera_orbit_frames(fig)
 
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     fig.write_html(HTML_FILE, include_plotlyjs="cdn")
     print(f"Saved interactive HTML to {HTML_FILE}")
     fig.show()

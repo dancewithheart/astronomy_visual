@@ -54,14 +54,14 @@ down to cool/red faint stars.
 
 That is nice evidence supporting claim that DBSCAN did not find accidental data.
 
-## Parameters tuning for DBSCAN
+### Pleiades - parameters tuning for DBSCAN
 
 ```
 python -m experiments.pleiades_tune
 ```
 
-After dropping conditions on parallex there are more data 4k sorces
-and more than one cluster.
+After dropping conditions on parallex there are more data 4k sources
+so the experiment become bore general (no bias towards parallex).
 
 But across different parameters the same cluster is found:
 ```
@@ -70,10 +70,88 @@ pmra     ≈ +19.72 mas/yr
 pmdec    ≈ -45.32 mas/yr
 ```
 
-so keep the originally chose parameter.
+After varying eps and in the best combination was eps=0.1 and min_samples=50
+```
+eps=0.05
+min_samples=15
 
-## Resources
+candidate size: 962
+TP: 858
+FP: 104
+FN: 23
 
-* [astroML](https://www.astroml.org/examples) Python project, built around statistics and ML on astronomical datasets. Its examples include classification, regression, density estimation, dimensionality reduction, clustering and time-series analysis using NumPy/scikit-learn/Astropy
+precision: 0.892
+recall:    0.974
+F1:        0.931
+```
+it improves initial parameter choice:
+```
+precision: 0.712 → 0.822
+F1:        0.832 → 0.974
+recall:    1.000 → 0.931
+```
+
+In data there is visible *precision–recall trade-off*
+```
+0.05 / 10 → precision .874, recall .984
+0.05 / 15 → precision .892, recall .974   ← best F1
+0.05 / 20 → precision .910, recall .936
+0.05 / 30 → precision .916, recall .900
+0.05 / 40 → precision .927, recall .846
+...
+```
+
+### Compare ML models HDBSCAN vs DBSCAN
+
+HDBSCAN was more robust to parameter choice but more permissive:
+it consistently recovered all 881 reference members,
+while including ~325–333 additional candidates.
+
+Tuned DBSCAN sacrificed 23 reference members but reduced unmatched candidates to 104, producing a higher F1 score.
+
+```
+DBSCAN:
+precision = 0.892
+recall    = 0.974
+F1        = 0.931
+
+HDBSCAN:
+precision = 0.731
+recall    = 1.000
+F1        = 0.844
+```
+
+### Research using this approach
+
 * 2023 study used Gaia DR3 + DBSCAN on Pleiades, Praesepe and Blanco 1; it identified 958 Pleiades members: [A Gaia astrometric view of the open clusters Pleiades, Praesepe and Blanco 1 - Jeison Alfonso, Alejandro García-Varela - Astrometry & Astrophysics Vol 677](https://www.aanda.org/articles/aa/full_html/2023/09/aa46569-23/aa46569-23.html)
 * 2024 study used Gaia DR3 + DBSCAN to twelve open clusters (NGC 2264, NGC 2682, NGC 2244, NGC 3293, NGC 6913, NGC 7142, IC 1805, NGC 6231, NGC 2243, NGC 6451, NGC 6005, NGC 6583) and validated the resulting memberships with colour-magnitude diagrams and spectroscopic data [Membership determination in open clusters using the DBSCAN Clustering Algorithm - Mudasir Raja, Priya Hasan, Md Mahmudunnobe, Md Saifuddin, S N Hasan](https://arxiv.org/abs/2404.10477)
+
+
+## Orion constellation - data exploration and visualisation
+
+```sh
+python gaia_analysis.py
+```
+
+Gets astronomy data from Gaia DR3 data source about stars around [Orion](https://en.wikipedia.org/wiki/Orion_(constellation)):
+- distance distribution
+
+![distance distribution](reports/orion/analysis/distance-histogram.png)
+
+- color vs distance
+
+![color vs distance](reports/orion/analysis/distance-vs-color.png)
+
+- parallax measurement quality
+
+- ![parallax measurement quality](reports/orion/analysis/parallax-quality.png)
+
+```sh
+python gaia_orion_pyvista.py --mode screenshot --quality draft
+```
+
+renders those stars in 3D using:
+- distances computed from parallax
+- Gaia BP−RP colours
+
+The current nebula dust is artistic - Gaussian blobs around bright stars and AI-tuned warm/cool gradients.

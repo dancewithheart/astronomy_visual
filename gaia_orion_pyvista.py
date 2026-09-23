@@ -8,29 +8,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyvista as pv
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-from astropy.table import Table
 
-GIF_FILE = Path("gaia_orion_orbit.gif")
-MP4_FILE = Path("gaia_orion_orbit.mp4")
+from astrometry import add_local_cartesian
+from datasets import ORION, load_dataset
 
-@dataclass(frozen=True)
-class QueryConfig:
-    ra_deg: float = 83.82208
-    dec_deg: float = -5.39111
-    radius_deg: float = 3.0
-    row_limit: int = 8000
-    parallax_min_mas: float = 1.0
-    parallax_max_mas: float = 8.0
-    parallax_over_error_min: float = 5.0
-    gmag_max: float = 15.5
+REPORT_DIR = Path("reports/orion")
 
-
-CACHE_DIR = Path("cache")
-PARQUET_FILE = CACHE_DIR / "orion_gaia.parquet"
-FITS_FILE = CACHE_DIR / "orion_gaia.fits"
-SCREENSHOT_FILE = Path("gaia_orion_pyvista.png")
+GIF_FILE = REPORT_DIR / "gaia_orion_orbit.gif"
+MP4_FILE = REPORT_DIR / "gaia_orion_orbit.mp4"
+SCREENSHOT_FILE = REPORT_DIR / "gaia_orion_pyvista.png"
 
 @dataclass(frozen=True)
 class RenderPreset:
@@ -110,109 +96,24 @@ def get_render_preset(name: str) -> RenderPreset:
     return RENDER_PRESETS[key]
 
 
-def build_query(cfg: QueryConfig) -> str:
-    return f"""
-    SELECT TOP {cfg.row_limit}
-        source_id,
-        ra,
-        dec,
-        parallax,
-        parallax_over_error,
-        phot_g_mean_mag,
-        bp_rp,
-        random_index
-    FROM gaiadr3.gaia_source
-    WHERE
-        1 = CONTAINS(
-            POINT('ICRS', ra, dec),
-            CIRCLE('ICRS', {cfg.ra_deg}, {cfg.dec_deg}, {cfg.radius_deg})
-        )
-        AND parallax IS NOT NULL
-        AND parallax BETWEEN {cfg.parallax_min_mas} AND {cfg.parallax_max_mas}
-        AND parallax_over_error >= {cfg.parallax_over_error_min}
-        AND phot_g_mean_mag IS NOT NULL
-        AND bp_rp IS NOT NULL
-        AND phot_g_mean_mag < {cfg.gmag_max}
-    ORDER BY random_index
-    """
-
-
-def query_gaia_table(cfg: QueryConfig) -> Table:
-    from astroquery.gaia import Gaia
-    Gaia.ROW_LIMIT = -1
-    query = build_query(cfg)
-    job = Gaia.launch_job(query)
-    tbl = job.get_results()
-    if len(tbl) == 0:
-        raise RuntimeError("Gaia query returned 0 rows")
-    return tbl
-
-
-def save_table_local(tbl: Table) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    tbl.write(FITS_FILE, format="fits", overwrite=True)
-    try:
-        tbl.write(PARQUET_FILE, format="parquet", overwrite=True)
-    except Exception:
-        pass
-
-
-def load_local_table() -> Table | None:
-    if PARQUET_FILE.exists():
-        print(f"Loading cached Parquet: {PARQUET_FILE}")
-        return Table.read(PARQUET_FILE, format="parquet")
-    if FITS_FILE.exists():
-        print(f"Loading cached FITS: {FITS_FILE}")
-        return Table.read(FITS_FILE, format="fits")
-    print("No local cache found")
-    return None
-
-
-def get_data(cfg: QueryConfig, refresh: bool = False) -> pd.DataFrame:
-    if not refresh:
-        cached = load_local_table()
-        if cached is not None:
-            print("Using local cached Gaia data")
-            return cached.to_pandas()
-
-    print("Querying Gaia archive")
-    tbl = query_gaia_table(cfg)
-    save_table_local(tbl)
-    return tbl.to_pandas()
-
-
-def add_derived_columns(df: pd.DataFrame, center_ra_deg: float, center_dec_deg: float) -> pd.DataFrame:
-    df = df.copy()
-
-    df["distance_pc"] = 1000.0 / df["parallax"]
-    df["bp_rp_clamped"] = df["bp_rp"].clip(-0.5, 4.0)
-
-    center = SkyCoord(ra=center_ra_deg * u.deg, dec=center_dec_deg * u.deg, frame="icrs")
-    stars = SkyCoord(
-        ra=df["ra"].to_numpy() * u.deg,
-        dec=df["dec"].to_numpy() * u.deg,
-        distance=df["distance_pc"].to_numpy() * u.pc,
-        frame="icrs",
+def prepare_orion_data(data: pd.DataFrame) -> pd.DataFrame:
+    result = add_local_cartesian(
+        data,
+        center_ra_deg=ORION.query.ra_deg,
+        center_dec_deg=ORION.query.dec_deg,
     )
 
-    sep = center.separation(stars)
-    pa = center.position_angle(stars)
-    dist_pc = stars.distance.to_value(u.pc)
+    result["bp_rp_clamped"] = result["bp_rp"].clip(-0.5, 4.0)
 
-    # Local Orion-centered coordinates
-    dx = dist_pc * np.tan(sep.to_value(u.rad)) * np.sin(pa.to_value(u.rad))
-    dy = dist_pc * np.tan(sep.to_value(u.rad)) * np.cos(pa.to_value(u.rad))
-    dz = dist_pc - np.median(dist_pc)
+    brightness = 10 ** (-0.4 * result["phot_g_mean_mag"].to_numpy())
+    brightness /= np.nanpercentile(brightness, 99.5)
 
-    df["x"] = dx
-    df["y"] = dy
-    df["z"] = dz
+    result["size"] = (
+            3.0
+            + 10.0 * np.clip(np.sqrt(brightness), 0, 1.0)
+    )
 
-    brightness = 10 ** (-0.4 * df["phot_g_mean_mag"].to_numpy())
-    brightness = brightness / np.nanpercentile(brightness, 99.5)
-    df["size"] = 3.0 + 10.0 * np.clip(np.sqrt(brightness), 0, 1.0)
-
-    return df
+    return result
 
 
 def star_rgb_from_bprp(bp_rp: np.ndarray) -> np.ndarray:
@@ -594,11 +495,13 @@ def main(
         n_frames: int | None = None,
         quality: str = "preview",
 ) -> None:
-    cfg = QueryConfig()
-    df = get_data(cfg, refresh=refresh)
-    df = add_derived_columns(df, cfg.ra_deg, cfg.dec_deg)
+    data = load_dataset(ORION, refresh=refresh)
+    data = prepare_orion_data(data)
+
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
     render_scene(
-        df,
+        data,
         screenshot=screenshot,
         animate=animate,
         movie_format=movie_format,

@@ -8,12 +8,13 @@ from pathlib import Path
 import matplotlib
 import pandas as pd
 
-from gaia_orion_flythrough import QueryConfig, add_derived_columns, get_data
+from astrometry import add_local_cartesian
+from datasets import ORION, load_dataset
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-OUTPUT_DIR = Path("analysis")
+OUTPUT_DIR = Path("reports/orion/analysis")
 REPORT_FILE = OUTPUT_DIR / "gaia-analysis.md"
 
 
@@ -39,8 +40,7 @@ def markdown_table(frame: pd.DataFrame) -> str:
 
 
 def prepare_data(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
-    config = QueryConfig()
-    raw = get_data(config, refresh=refresh)
+    raw = load_dataset(ORION, refresh=refresh)
 
     required = {
         "ra",
@@ -50,20 +50,36 @@ def prepare_data(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
         "bp_rp",
         "phot_g_mean_mag",
     }
+
     missing = required.difference(raw.columns)
     if missing:
         names = ", ".join(sorted(missing))
         raise RuntimeError(
-            f"Cached Gaia data is missing {names}. Run `python gaia_analysis.py --refresh`."
+            f"Cached Gaia data is missing {names}. "
+            "Run `python gaia_analysis.py --refresh`."
         )
 
     numeric = raw.copy()
+
     for column in required:
-        numeric[column] = pd.to_numeric(numeric[column], errors="coerce")
+        numeric[column] = pd.to_numeric(
+            numeric[column],
+            errors="coerce",
+        )
 
     clean = numeric.dropna(subset=list(required))
-    clean = clean[(clean["parallax"] > 0) & (clean["parallax_over_error"] >= 5)].copy()
-    clean = add_derived_columns(clean, config.ra_deg, config.dec_deg)
+
+    clean = clean[
+        (clean["parallax"] > 0)
+        & (clean["parallax_over_error"] >= 5)
+        ].copy()
+
+    clean = add_local_cartesian(
+        clean,
+        center_ra_deg=ORION.query.ra_deg,
+        center_dec_deg=ORION.query.dec_deg,
+    )
+
     return raw, clean
 
 
