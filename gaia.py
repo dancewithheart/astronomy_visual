@@ -13,6 +13,7 @@ DEFAULT_COLUMNS = (
     "dec",
     "parallax",
     "parallax_error",
+    "parallax_over_error",
     "pmra",
     "pmdec",
     "phot_g_mean_mag",

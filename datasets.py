@@ -32,6 +32,7 @@ ORION = GaiaDataset(
         parallax_over_error_min=5.0,
         parallax_min=1.0,
         parallax_max=8.0,
+        ruwe_max=1.4,
     )
 )
 
@@ -60,8 +61,4 @@ def load_dataset(dataset: GaiaDataset, *, refresh: bool = False) -> pd.DataFrame
     DATA_DIR.mkdir(exist_ok=True)
     data.to_csv(cache, index=False)
 
-    return data
-
-def count_dataset(dataset: GaiaDataset) -> pd.DataFrame:
-    data = query_gaia_count(dataset.query)
     return data
