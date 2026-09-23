@@ -7,6 +7,7 @@ if __name__ == "__main__":
 
     for eps in [0.15, 0.20, 0.25, 0.30, 0.35]:
         for min_samples in [10, 15, 20, 30]:
+            print("==================================")
             row = pleiades.main(refresh=False, eps=eps, min_samples=min_samples, make_plots=False)
             rows.append(row)
             print(row)
