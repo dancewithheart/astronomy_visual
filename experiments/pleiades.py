@@ -9,6 +9,45 @@ from sklearn.preprocessing import StandardScaler
 
 from datasets import PLEIADES, load_dataset
 
+from astroquery.vizier import Vizier
+
+REFERENCE_CATALOG = "J/A+A/677/A163/members"
+
+
+def load_reference_pleiades() -> pd.DataFrame:
+    vizier = Vizier(
+        columns=["GaiaDR3", "Cluster"],
+        row_limit=-1,
+    )
+
+    tables = vizier.get_catalogs(REFERENCE_CATALOG)
+
+    reference = tables[0].to_pandas()
+
+    # VizieR strings can occasionally arrive as bytes.
+    reference["Cluster"] = reference["Cluster"].map(
+        lambda value:
+        value.decode()
+        if isinstance(value, bytes)
+        else str(value)
+    )
+
+    pleiades = reference[
+        reference["Cluster"].str.strip().str.casefold()
+        == "pleiades"
+        ].copy()
+
+    pleiades = pleiades.rename(
+        columns={"GaiaDR3": "source_id"}
+    )
+
+    pleiades["source_id"] = (
+        pleiades["source_id"]
+        .astype("int64")
+    )
+
+    return pleiades[["source_id"]].drop_duplicates()
+
 
 FEATURES = ["parallax", "pmra", "pmdec"]
 
@@ -38,7 +77,7 @@ def prepare_features(data: pd.DataFrame) -> pd.DataFrame:
 def cluster_stars(
         data: pd.DataFrame,
         *,
-        eps: float = 0.25,
+        eps: float = 0.05,
         min_samples: int = 15,
 ) -> pd.DataFrame:
     result = data.copy()
@@ -207,7 +246,7 @@ def plot_radial_density(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
     noise = data[data["cluster"] != candidate_cluster]
 
-    bins = np.linspace(0.0, 1.0, 16)
+    bins = np.linspace(0.0, PLEIADES.query.radius_deg,31)
 
     def density(stars: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         counts, edges = np.histogram(
@@ -258,7 +297,7 @@ def plot_angular_distance_cdf(data: pd.DataFrame, candidate_cluster: int) -> Non
     plt.figure(figsize=(8, 6))
 
     for mask, label in [
-        (data["cluster"] == -1, "field / noise"),
+        (data["cluster"] != candidate_cluster, "field / noise"),
         (data["cluster"] == candidate_cluster, "DBSCAN candidate"),
     ]:
         distances = np.sort(
@@ -304,6 +343,81 @@ def add_absolute_g_magnitude(
 
     return result
 
+def evaluate_pleiades_cluster(data: pd.DataFrame, reference_ids: set[int]) -> dict[str, float | int]:
+    result = data.copy()
+
+    result["reference_member"] = (
+        result["source_id"]
+        .astype("int64")
+        .isin(reference_ids)
+    )
+
+    clusters = result[result["cluster"] >= 0]
+
+    overlap = (
+        clusters[clusters["reference_member"]]
+        .groupby("cluster")
+        .size()
+    )
+
+    if overlap.empty:
+        truth = result["reference_member"]
+
+        return {
+            "pleiades_cluster": -1,
+            "pleiades_cluster_size": 0,
+            "reference_members": len(reference_ids),
+            "reference_in_sample": int(truth.sum()),
+            "tp": 0,
+            "fp": 0,
+            "fn": int(truth.sum()),
+            "tn": int((~truth).sum()),
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "median_parallax": float("nan"),
+            "median_pmra": float("nan"),
+            "median_pmdec": float("nan"),
+        }
+    else:
+        pleiades_cluster = int(overlap.idxmax())
+
+    predicted = result["cluster"] == pleiades_cluster
+    truth = result["reference_member"]
+
+    tp = int((predicted & truth).sum())
+    fp = int((predicted & ~truth).sum())
+    fn = int((~predicted & truth).sum())
+    tn = int((~predicted & ~truth).sum())
+
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision + recall
+        else 0.0
+    )
+
+    members = result[predicted]
+
+    return {
+        "pleiades_cluster": pleiades_cluster,
+        "pleiades_cluster_size": len(members),
+        "reference_members": len(reference_ids),
+        "reference_in_sample": int(truth.sum()),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "median_parallax": members["parallax"].median(),
+        "median_pmra": members["pmra"].median(),
+        "median_pmdec": members["pmdec"].median(),
+    }
+
 def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
     raw = load_dataset(PLEIADES, refresh=refresh)
 
@@ -330,23 +444,61 @@ def main(*, refresh: bool, eps: float, min_samples: int, make_plots: bool):
         plot_proper_motion(clustered)
         plot_sky(clustered)
 
-    if not summary.empty:
-        candidate_cluster = int(summary.index[1])
-        print("Pleiades candidate cluster:", candidate_cluster)
-        if make_plots:
-            plot_candidate_cmd(clustered, candidate_cluster)
-            plot_cmd(clustered, candidate_cluster)
-            plot_parallax(clustered, candidate_cluster)
-            plot_angular_distance_cdf(clustered, candidate_cluster)
-            plot_radial_density(clustered, candidate_cluster)
+    reference = load_reference_pleiades()
 
+    reference_ids = set(reference["source_id"].astype("int64"))
+
+    evaluation = evaluate_pleiades_cluster(clustered, reference_ids)
+
+    candidate_cluster = int(evaluation["pleiades_cluster"])
+
+    print("Pleiades candidate cluster:", candidate_cluster,)
+
+    print()
+    print("Published reference catalogue")
+    print(
+        f"  Pleiades members:       "
+        f"{evaluation['reference_members']}"
+    )
+    print(
+        f"  present in our sample:  "
+        f"{evaluation['reference_in_sample']}"
+    )
+
+    print()
+    print("Classification")
+    print(f"  true positives:  {evaluation['tp']}")
+    print(f"  false positives: {evaluation['fp']}")
+    print(f"  false negatives: {evaluation['fn']}")
+    print(f"  true negatives:  {evaluation['tn']}")
+
+    print()
+    print(
+        f"  precision: "
+        f"{evaluation['precision']:.3f}"
+    )
+    print(
+        f"  recall:    "
+        f"{evaluation['recall']:.3f}"
+    )
+    print(
+        f"  F1:        "
+        f"{evaluation['f1']:.3f}"
+    )
+
+    if candidate_cluster >= 0 and make_plots:
+        plot_candidate_cmd(clustered, candidate_cluster)
+        plot_cmd(clustered, candidate_cluster)
+        plot_parallax(clustered, candidate_cluster)
+        plot_angular_distance_cdf(clustered, candidate_cluster)
+        plot_radial_density(clustered, candidate_cluster)
     return {
         "eps": eps,
         "min_samples": min_samples,
         "clusters": len(summary),
-        "noise": noise
+        "noise": int(noise),
+        **evaluation,
     }
-
 
 def plot_parallax(data: pd.DataFrame, candidate_cluster: int) -> None:
     candidate = data[data["cluster"] == candidate_cluster]
@@ -383,7 +535,7 @@ def plot_parallax(data: pd.DataFrame, candidate_cluster: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh", action="store_true")
-    parser.add_argument("--eps", type=float, default=0.25)
+    parser.add_argument("--eps", type=float, default=0.05)
     parser.add_argument("--min-samples", type=int, default=15)
     args = parser.parse_args()
 
